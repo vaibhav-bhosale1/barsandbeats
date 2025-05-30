@@ -22,6 +22,9 @@ model Stream {
   active   Boolean     @default(true)
   userId   String
   url      String
+  title    String       @default("")
+  smallImage  String    @default("")
+  bigImage  String      @default("")
   extractedId String
   user     User        @relation(fields: [userId], references: [id])
   upvotes  Upvote[]    // Renamed from `upvote` to `upvotes` for clarity
