@@ -9,7 +9,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 model User {
-  id       String    @id @default(uuid())
+  id       String    @id @default(cuid())
   email    String    @unique
   provider Provider
   streams  Stream[]
@@ -17,7 +17,7 @@ model User {
 }
 
 model Stream {
-  id       String      @id @default(uuid())
+  id       String      @id @default(cuid())
   type     StreamType
   active   Boolean     @default(true)
   userId   String
@@ -31,13 +31,12 @@ model Stream {
 }
 
 model Upvote {
-  id        String   @id @default(uuid())
-  userId    String
-  streamId  String
-
-  user      User     @relation(fields: [userId], references: [id])
-  stream    Stream   @relation(fields: [streamId], references: [id])
-
+  id       String @id @default(cuid())
+  userId   String
+  streamId String
+  user     User   @relation(fields: [userId], references: [id])
+  stream   Stream @relation(fields: [streamId], references: [id])
+  
   @@unique([userId, streamId])
 }
 
