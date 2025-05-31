@@ -1,48 +1,116 @@
 "use client"
 import { Button } from '@/components/ui/button'
-import { Music } from 'lucide-react'
+import { Menu, Music, X } from 'lucide-react'
 import { signIn, signOut, useSession } from 'next-auth/react'
 import Link from 'next/link'
-import React from 'react'
-import { ThemeToggle } from "@/components/theme-toggle"
-const Header = () => {
-  const { data: session } = useSession(); 
+import React, { useEffect, useState } from 'react'
+import { motion } from 'framer-motion';
+
+
+export default function Header() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 10);
+    };
+    
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const navLinks = [
+    { name: 'Features', href: '#features' },
+    { name: 'How It Works', href: '#how-it-works' },
+    { name: 'Creators', href: '#creators' },
+    { name: 'Testimonials', href: '#testimonials' },
+    { name: 'Pricing', href: '#pricing' },
+  ];
 
   return (
-    
-            <header className="px-2 lg:px-6 h-16 flex items-center border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50 w-full">
-        <Link href="/" className="flex items-center justify-center gap-2">
-          <div className="h-8 w-8 bg-gradient-to-br from-blue-600 to-teal-500 rounded-lg flex items-center justify-center">
-            <Music className="h-5 w-5 text-white" />
-          </div>
-          <span className="font-bold text-xl bg-gradient-to-r from-blue-600 to-teal-500 bg-clip-text text-transparent">
-            StreamTunes
-          </span>
-        </Link>
-        <nav className="ml-auto flex gap-4 sm:gap-6 items-center">
-          <Link href="#features" className="text-sm font-medium hover:text-blue-600 transition-colors">
-            Features
-          </Link>
-          <Link href="#how-it-works" className="text-sm font-medium hover:text-blue-600 transition-colors">
-            How It Works
-          </Link>
-          <Link href="#pricing" className="text-sm font-medium hover:text-blue-600 transition-colors">
-            Pricing
-            
-          </Link>
-       <ThemeToggle/>
-       <div>
-        {!session?.user && ( // show Signin if user is NOT logged in
-          <Button onClick={() => signIn()}>Signin</Button>
-        )}
-        {session?.user && ( // show Signout if user IS logged in
-          <Button onClick={() => signOut()}>Log Out</Button>
-        )}
-      </div>
-        
-        </nav>
-      </header>    
-  )
-}
+    <motion.header 
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+        scrolled ? 'bg-dark-300/80 backdrop-blur-md shadow-lg' : 'bg-transparent'
+      }`}
+      initial={{ y: -100 }}
+      animate={{ y: 0 }}
+      transition={{ duration: 0.5 }}
+    >
+      <div className="container mx-auto px-4">
+        <div className="flex items-center justify-between h-16 md:h-20">
+          {/* Logo */}
+          <motion.div 
+            className="flex items-center space-x-2"
+            whileHover={{ scale: 1.05 }}
+          >
+            <div className="w-8 h-8 rounded-full bg-gradient-to-r from-primary-500 to-accent-500 flex items-center justify-center">
+              <Music size={16} className="text-white" />
+            </div>
+            <span className="text-xl font-bold">BarsAnsBeats</span>
+          </motion.div>
 
-export default Header;
+          {/* Desktop Navigation */}
+          <nav className="hidden md:flex items-center space-x-8">
+            {navLinks.map((link) => (
+              <a
+                key={link.name}
+                href={link.href}
+                className="text-white/80 hover:text-white transition-colors"
+              >
+                {link.name}
+              </a>
+            ))}
+          </nav>
+
+          {/* Call to Action Buttons */}
+          <div className="hidden md:flex items-center space-x-4">
+            <Button >Log In</Button>
+            <Button>Sign Up</Button>
+          </div>
+
+          {/* Mobile Menu Button */}
+          <div className="md:hidden">
+            <button
+              onClick={() => setIsOpen(!isOpen)}
+              className="p-2 text-white focus:outline-none"
+            >
+              {isOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+          </div>
+        </div>
+        
+      </div>
+
+      {/* Mobile Menu */}
+      {isOpen && (
+        <motion.div 
+          className="md:hidden bg-dark-300/95 backdrop-blur-md"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <div className="container mx-auto px-4 py-4">
+            <nav className="flex flex-col space-y-4 py-4">
+              {navLinks.map((link) => (
+                <a
+                  key={link.name}
+                  href={link.href}
+                  className="text-white/80 hover:text-white transition-colors py-2"
+                  onClick={() => setIsOpen(false)}
+                >
+                  {link.name}
+                </a>
+              ))}
+            </nav>
+            <div className="flex flex-col space-y-3 pt-4 pb-6">
+              <Button >Log In</Button>
+              <Button >Sign Up</Button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </motion.header>
+  );
+}
