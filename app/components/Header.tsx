@@ -10,6 +10,7 @@ import { motion } from 'framer-motion';
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const { data: session } = useSession()
 
   useEffect(() => {
     const handleScroll = () => {
@@ -65,8 +66,16 @@ export default function Header() {
 
           {/* Call to Action Buttons */}
           <div className="hidden md:flex items-center space-x-4">
-            <Button >Log In</Button>
-            <Button>Sign Up</Button>
+             {!session?.user && ( // show Signin if user is NOT logged in
+              <>
+              <Button  className="cursor-pointer"onClick={()=>{signIn()}}>Log In</Button>
+                    <Button className="cursor-pointer"onClick={()=>{signIn()}}>Sign Up</Button>
+              </> 
+        )}
+        {session?.user && ( // show Signout if user IS logged in
+          <Button onClick={() => signOut()}>Signout</Button>
+        )}
+             
           </div>
 
           {/* Mobile Menu Button */}
@@ -105,8 +114,15 @@ export default function Header() {
               ))}
             </nav>
             <div className="flex flex-col space-y-3 pt-4 pb-6">
-              <Button >Log In</Button>
-              <Button >Sign Up</Button>
+               {!session?.user && ( // show Signin if user is NOT logged in
+              <>
+              <Button  className="cursor-pointer"onClick={()=>{signIn()}}>Log In</Button>
+                    <Button className="cursor-pointer"onClick={()=>{signIn()}}>Sign Up</Button>
+              </> 
+              )}
+              {session?.user && ( // show Signout if user IS logged in
+                <Button onClick={() => signOut()}>Signout</Button>
+               )}
             </div>
           </div>
         </motion.div>
