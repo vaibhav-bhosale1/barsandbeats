@@ -1,8 +1,25 @@
 "use client"
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChevronUp, ChevronDown, Play, Plus, Users, Clock, Share2, Copy, Check } from 'lucide-react';
+import axios from 'axios';
 
-const MusicVotingApp = () => {
+
+const REFRESH_INTERVAL=10*1000
+export default function MusicVotingApp () {
+
+
+    async function  refreshStreams(){
+        const res=await axios.get('/api/streams/my')
+        console.log(res);
+    }
+
+    useEffect(()=>{
+        refreshStreams();
+        const interval=setInterval(()=>{
+
+        },REFRESH_INTERVAL)
+
+    },[])
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [currentVideo, setCurrentVideo] = useState({
     id: 'dQw4w9WgXcQ',
@@ -11,6 +28,7 @@ const MusicVotingApp = () => {
     duration: '3:33'
   });
   
+
   const [queue, setQueue] = useState([
     {
       id: 'L_jWHffIx5E',
@@ -411,4 +429,3 @@ const MusicVotingApp = () => {
   );
 };
 
-export default MusicVotingApp;
