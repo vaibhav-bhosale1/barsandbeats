@@ -34,8 +34,8 @@ export default function Dashboard() {
   }>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [copied, setCopied] = useState(false);
-
- 
+  const [fetchingMetadata, setFetchingMetadata] = useState(false);
+  const [addingToQueue, setAddingToQueue] = useState(false);
 
   const refreshStreams = async () => {
     try {
@@ -46,21 +46,32 @@ export default function Dashboard() {
       const startTime = performance.now();
       const res = await fetch('/api/streams', {
         credentials: "include",
-        headers: { 'Cache-Control': 'no-cache' }
+        headers: { 
+          'Cache-Control': 'no-cache',
+          'Content-Type': 'application/json'
+        }
       });
       const fetchTime = performance.now() - startTime;
       
       console.log(`[Dashboard] Fetch completed in ${fetchTime.toFixed(1)}ms, status: ${res.status}`);
+      console.log("[Dashboard] Response headers:", res.headers);
       
       if (!res.ok) {
-        let errorData = { message: `HTTP error ${res.status}` };
-        try {
-          errorData = await res.json();
-        } catch (e) {
-          console.warn("[Dashboard] Failed to parse error response:", e);
+        const errorText = await res.text();
+        console.error("[Dashboard] Error response:", errorText);
+        
+        // Check if response is HTML (error page)
+        if (errorText.includes('<!DOCTYPE') || errorText.includes('<html')) {
+          throw new Error(`Server returned HTML instead of JSON. Status: ${res.status}`);
         }
         
-        console.error("[Dashboard] API Error:", errorData);
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (e) {
+          throw new Error(`HTTP error ${res.status}: ${errorText}`);
+        }
+        
         throw new Error(errorData.message || `API request failed with status ${res.status}`);
       }
       
@@ -74,10 +85,8 @@ export default function Dashboard() {
       setStreams(data.streams);
     } catch (error) {
       console.error("[Dashboard] Refresh error:", error);
-      setError(error.message);
-      
-      // Show user-friendly error message
-      setError("Not logged in");
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -96,70 +105,154 @@ export default function Dashboard() {
     return match ? match[1] : null;
   };
 
+  // Fetch video metadata from YouTube
+  const fetchVideoMetadata = async (videoId: string) => {
+    try {
+      setFetchingMetadata(true);
+      
+      // Try to get metadata from your backend first (if you have an endpoint for this)
+      const response = await fetch(`/api/youtube/metadata?videoId=${videoId}`, {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          id: videoId,
+          title: data.title || 'Unknown Title',
+          thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+          duration: data.duration || '0:00'
+        };
+      }
+      
+      // Fallback: Use oEmbed API (limited info but no API key required)
+      const oEmbedResponse = await fetch(
+        `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
+      );
+      
+      if (oEmbedResponse.ok) {
+        const oEmbedData = await oEmbedResponse.json();
+        return {
+          id: videoId,
+          title: oEmbedData.title || 'Unknown Title',
+          thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+          duration: '0:00' // oEmbed doesn't provide duration
+        };
+      }
+      
+      // Final fallback
+      return {
+        id: videoId,
+        title: 'Unknown Title',
+        thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+        duration: '0:00'
+      };
+      
+    } catch (error) {
+      console.error('Error fetching video metadata:', error);
+      return {
+        id: videoId,
+        title: 'Unknown Title',
+        thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+        duration: '0:00'
+      };
+    } finally {
+      setFetchingMetadata(false);
+    }
+  };
+
   // Handle URL input change and generate preview
-  const handleUrlChange = (url: string) => {
+  const handleUrlChange = async (url: string) => {
     setYoutubeUrl(url);
     const videoId = extractVideoId(url);
+    
     if (videoId) {
+      // Set initial preview with loading state
       setPreviewVideo({
         id: videoId,
         title: 'Loading...',
         thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
         duration: '0:00'
       });
+      
+      // Fetch actual metadata
+      const metadata = await fetchVideoMetadata(videoId);
+      setPreviewVideo(metadata);
     } else {
       setPreviewVideo(null);
     }
   };
 
   // Add song to queue
-  const addToQueue = async () => {
-    if (!previewVideo) return;
+// Add song to queue
+const addToQueue = async () => {
+  if (!previewVideo) return;
 
-    try {
-      const session = await fetch('/api/auth/session', {
-        credentials: 'include'
-      }).then(res => res.json());
+  try {
+    setAddingToQueue(true);
+    setError(null);
 
-      if (!session?.user?.email) {
-        throw new Error('You need to be logged in to add songs');
+    console.log("[AddToQueue] Starting...");
+    console.log("[AddToQueue] Preview video:", previewVideo);
+    console.log("[AddToQueue] YouTube URL:", youtubeUrl);
+
+    // SIMPLIFIED: Remove the extra user fetch since the API handles auth internally
+    const addRes = await fetch('/api/streams', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url: youtubeUrl,
+        title: previewVideo.title,
+        thumbnail: previewVideo.thumbnail,
+        duration: previewVideo.duration
+        // REMOVED: creatorId - let the API handle this with the authenticated user
+      }),
+      credentials: 'include'
+    });
+
+    console.log("[AddToQueue] Response status:", addRes.status);
+    
+    if (!addRes.ok) {
+      const errorText = await addRes.text();
+      console.error("[AddToQueue] Error response:", errorText);
+      
+      // Check if response is HTML (error page)
+      if (errorText.includes('<!DOCTYPE') || errorText.includes('<html')) {
+        throw new Error('Server error: Please check if the API endpoint exists and is working correctly.');
       }
-
-      const user = await fetch('/api/user', {
-        credentials: 'include'
-      }).then(res => res.json());
-
-      if (!user?.id) {
-        throw new Error('User not found');
+      
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch (e) {
+        throw new Error(`Server error: ${errorText}`);
       }
-
-      const res = await fetch('/api/streams', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          creatorId: user.id,
-          url: youtubeUrl
-        }),
-        credentials: 'include'
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.message || 'Failed to add song');
-      }
-
-      setYoutubeUrl('');
-      setPreviewVideo(null);
-      await refreshStreams();
-
-    } catch (error: any) {
-      console.error('Error adding song:', error);
-      setError(error.message);
+      
+      throw new Error(errorData.message || 'Failed to add song to queue');
     }
-  };
 
+    const result = await addRes.json();
+    console.log("[AddToQueue] Success:", result);
+
+    // SUCCESS: Show success message
+    alert(`"${previewVideo.title}" has been added to the queue!`);
+
+    // Clear form and refresh
+    setYoutubeUrl('');
+    setPreviewVideo(null);
+    
+    // IMPORTANT: Make sure this function refreshes the queue properly
+    await refreshStreams();
+
+  } catch (error: any) {
+    console.error('Error adding song:', error);
+    setError(error.message || 'Failed to add song to queue');
+  } finally {
+    setAddingToQueue(false);
+  }
+};
   // Vote functions
   const upvote = async (streamId: string) => {
     try {
@@ -228,7 +321,8 @@ export default function Dashboard() {
       console.error('Failed to copy:', err);
     }
   };
-    return (
+
+  return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-zinc-50 text-gray-900">
       <div className="container mx-auto px-4 py-6">
         {/* Header */}
@@ -238,6 +332,19 @@ export default function Dashboard() {
           </h1>
           <p className="text-gray-600">Vote for the next song and shape the playlist together!</p>
         </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-700 text-sm">Error: {error}</p>
+            <button 
+              onClick={() => setError(null)}
+              className="mt-2 text-red-600 hover:text-red-800 text-sm underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Main Video Player */}
@@ -307,17 +414,31 @@ export default function Dashboard() {
                       src={previewVideo.thumbnail} 
                       alt="Preview"
                       className="w-20 h-15 object-cover rounded"
-                    
                     />
                     <div className="flex-1">
-                      <h4 className="font-medium">{previewVideo.title}</h4>
+                      <h4 className="font-medium">
+                        {fetchingMetadata ? (
+                          <span className="flex items-center gap-2">
+                            <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
+                            Loading title...
+                          </span>
+                        ) : (
+                          previewVideo.title
+                        )}
+                      </h4>
                       <p className="text-sm text-gray-500">{previewVideo.duration}</p>
                     </div>
                     <button
                       onClick={addToQueue}
-                      className="px-6 py-2 bg-gradient-to-r from-gray-700 to-gray-600 text-white rounded-lg font-medium hover:from-gray-800 hover:to-gray-700 transition-all transform hover:scale-105"
+                      disabled={addingToQueue || fetchingMetadata || previewVideo.title === 'Loading...'}
+                      className="px-6 py-2 bg-gradient-to-r from-gray-700 to-gray-600 text-white rounded-lg font-medium hover:from-gray-800 hover:to-gray-700 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                     >
-                      Add to Queue
+                      {addingToQueue ? (
+                        <span className="flex items-center gap-2">
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          Adding...
+                        </span>
+                      ) : fetchingMetadata ? 'Loading...' : 'Add to Queue'}
                     </button>
                   </div>
                 )}
@@ -336,11 +457,12 @@ export default function Dashboard() {
               <div className="space-y-3 max-h-96 overflow-y-auto">
                 {loading ? (
                   <div className="text-center py-8 text-gray-500">
+                    <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin mx-auto mb-2"></div>
                     <p>Loading streams...</p>
                   </div>
                 ) : error ? (
                   <div className="text-center py-8 text-red-500">
-                    <p>Error: {error}</p>
+                    <p>Error loading queue</p>
                     <button 
                       onClick={refreshStreams}
                       className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
@@ -366,7 +488,6 @@ export default function Dashboard() {
                           alt={song.title}
                           className="w-12 h-9 object-cover rounded cursor-pointer"
                           onClick={() => playNext(song)}
-                         
                         />
                         
                         <div className="flex-1 min-w-0">
@@ -376,7 +497,7 @@ export default function Dashboard() {
                         
                         <div className="flex flex-col items-center gap-1">
                           <button
-                            onClick={() => upvote(song.id)} // Now uses the correct database ID
+                            onClick={() => upvote(song.id)}
                             className={`p-1 rounded transition-colors ${
                               song.haveUpvoted 
                                 ? 'bg-green-100 text-green-700' 
@@ -392,7 +513,7 @@ export default function Dashboard() {
                           </span>
                           
                           <button
-                            onClick={() => downvote(song.id)} // You'll need to implement downvote API
+                            onClick={() => downvote(song.id)}
                             className="p-1 hover:bg-red-100 rounded transition-colors"
                           >
                             <ChevronDown className="w-4 h-4 text-red-600" />
@@ -407,7 +528,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Share Modal - keeping your existing implementation */}
+        {/* Share Modal */}
         {showShareModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
@@ -446,8 +567,6 @@ export default function Dashboard() {
                     </button>
                   </div>
                 </div>
-                
-                
                 
                 <div className="text-center pt-4 border-t border-gray-200">
                   <p className="text-xs text-gray-500">
