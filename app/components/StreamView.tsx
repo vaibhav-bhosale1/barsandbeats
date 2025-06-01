@@ -15,7 +15,12 @@ interface Stream {
   haveUpvoted: boolean;
 }
 
-export default function Dashboard() {
+const creatorId="b50a6f8e-19d5-4272-85d9-344c2726542f"
+export default function StreamView({
+    creatorId
+}:{
+    creatorId:string
+}) {
   const [streams, setStreams] = useState<Stream[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +49,7 @@ export default function Dashboard() {
       setError(null);
       
       const startTime = performance.now();
-      const res = await fetch('/api/streams/', {
+      const res = await fetch('/api/streams', {
         credentials: "include",
         headers: { 
           'Cache-Control': 'no-cache',
@@ -307,7 +312,7 @@ const addToQueue = async () => {
       duration: song.duration
     });
   };
-  const creatorId="b50a6f8e-19d5-4272-85d9-344c2726542f"
+  
 
   // Share functionality
   const shareUrl = typeof window !== 'undefined' ? `${window.location.hostname}/creator/${creatorId}` : '';
