@@ -1,4 +1,4 @@
-"use client"
+"use client";
 import React, { useEffect, useState } from 'react';
 import { ChevronUp, ChevronDown, Play, Plus, Users, Clock, Share2, Copy, Check } from 'lucide-react';
 
@@ -15,12 +15,13 @@ interface Stream {
   haveUpvoted: boolean;
 }
 
-const creatorId="b50a6f8e-19d5-4272-85d9-344c2726542f"
+interface StreamViewProps {
+  creatorId?: string;
+}
+
 export default function StreamView({
-    creatorId
-}:{
-    creatorId:string
-}) {
+  creatorId
+}: StreamViewProps) {
   const [streams, setStreams] = useState<Stream[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,28 +45,34 @@ export default function StreamView({
 
   const refreshStreams = async () => {
     try {
-      console.log("[Dashboard] Starting stream refresh...");
+      console.log("[StreamView] Starting stream refresh...");
+      console.log("[StreamView] CreatorId:", creatorId);
       setLoading(true);
       setError(null);
       
       const startTime = performance.now();
-      const res = await fetch('/api/streams', {
+      
+      const url = creatorId 
+        ? `/api/streams?creatorId=${creatorId}`
+        : '/api/streams';
+      
+      console.log("[StreamView] Fetching from URL:", url);
+      
+      const res = await fetch(url, {
         credentials: "include",
         headers: { 
           'Cache-Control': 'no-cache',
           'Content-Type': 'application/json'
         }
       });
-      const fetchTime = performance.now() - startTime;
       
-      console.log(`[Dashboard] Fetch completed in ${fetchTime.toFixed(1)}ms, status: ${res.status}`);
-      console.log("[Dashboard] Response headers:", res.headers);
+      const fetchTime = performance.now() - startTime;
+      console.log(`[StreamView] Fetch completed in ${fetchTime.toFixed(1)}ms, status: ${res.status}`);
       
       if (!res.ok) {
         const errorText = await res.text();
-        console.error("[Dashboard] Error response:", errorText);
+        console.error("[StreamView] Error response:", errorText);
         
-        // Check if response is HTML (error page)
         if (errorText.includes('<!DOCTYPE') || errorText.includes('<html')) {
           throw new Error(`Server returned HTML instead of JSON. Status: ${res.status}`);
         }
@@ -81,15 +88,16 @@ export default function StreamView({
       }
       
       const data = await res.json();
-      console.log("[Dashboard] API Response:", data);
+      console.log("[StreamView] API Response:", data);
       
       if (!data.streams) {
         throw new Error("Invalid response format - missing streams data");
       }
       
       setStreams(data.streams);
+      console.log("[StreamView] Successfully loaded", data.streams.length, "streams");
     } catch (error) {
-      console.error("[Dashboard] Refresh error:", error);
+      console.error("[StreamView] Refresh error:", error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       setError(errorMessage);
     } finally {
@@ -101,21 +109,18 @@ export default function StreamView({
     refreshStreams();
     const interval = setInterval(refreshStreams, REFRESH_INTERVAL);
     return () => clearInterval(interval);
-  }, []);
+  }, [creatorId]);
 
-  // Extract YouTube video ID from URL
   const extractVideoId = (url: string) => {
     const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
     const match = url.match(regex);
     return match ? match[1] : null;
   };
 
-  // Fetch video metadata from YouTube
   const fetchVideoMetadata = async (videoId: string) => {
     try {
       setFetchingMetadata(true);
       
-      // Try to get metadata from your backend first (if you have an endpoint for this)
       const response = await fetch(`/api/youtube/metadata?videoId=${videoId}`, {
         credentials: 'include'
       });
@@ -130,7 +135,6 @@ export default function StreamView({
         };
       }
       
-      // Fallback: Use oEmbed API (limited info but no API key required)
       const oEmbedResponse = await fetch(
         `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
       );
@@ -141,11 +145,10 @@ export default function StreamView({
           id: videoId,
           title: oEmbedData.title || 'Unknown Title',
           thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
-          duration: '0:00' // oEmbed doesn't provide duration
+          duration: '0:00'
         };
       }
       
-      // Final fallback
       return {
         id: videoId,
         title: 'Unknown Title',
@@ -166,13 +169,11 @@ export default function StreamView({
     }
   };
 
-  // Handle URL input change and generate preview
   const handleUrlChange = async (url: string) => {
     setYoutubeUrl(url);
     const videoId = extractVideoId(url);
     
     if (videoId) {
-      // Set initial preview with loading state
       setPreviewVideo({
         id: videoId,
         title: 'Loading...',
@@ -180,7 +181,6 @@ export default function StreamView({
         duration: '0:00'
       });
       
-      // Fetch actual metadata
       const metadata = await fetchVideoMetadata(videoId);
       setPreviewVideo(metadata);
     } else {
@@ -188,77 +188,60 @@ export default function StreamView({
     }
   };
 
-  // Add song to queue
-// Add song to queue
-const addToQueue = async () => {
-  if (!previewVideo) return;
+  const addToQueue = async () => {
+    if (!previewVideo) return;
 
-  try {
-    setAddingToQueue(true);
-    setError(null);
+    try {
+      setAddingToQueue(true);
+      setError(null);
 
-    console.log("[AddToQueue] Starting...");
-    console.log("[AddToQueue] Preview video:", previewVideo);
-    console.log("[AddToQueue] YouTube URL:", youtubeUrl);
-
-    // SIMPLIFIED: Remove the extra user fetch since the API handles auth internally
-    const addRes = await fetch('/api/streams', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+      const requestBody = {
         url: youtubeUrl,
         title: previewVideo.title,
         thumbnail: previewVideo.thumbnail,
-        duration: previewVideo.duration
-        // REMOVED: creatorId - let the API handle this with the authenticated user
-      }),
-      credentials: 'include'
-    });
+        duration: previewVideo.duration,
+        ...(creatorId && { creatorId })
+      };
 
-    console.log("[AddToQueue] Response status:", addRes.status);
-    
-    if (!addRes.ok) {
-      const errorText = await addRes.text();
-      console.error("[AddToQueue] Error response:", errorText);
+      const addRes = await fetch('/api/streams', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+        credentials: 'include'
+      });
       
-      // Check if response is HTML (error page)
-      if (errorText.includes('<!DOCTYPE') || errorText.includes('<html')) {
-        throw new Error('Server error: Please check if the API endpoint exists and is working correctly.');
+      if (!addRes.ok) {
+        const errorText = await addRes.text();
+        
+        if (errorText.includes('<!DOCTYPE') || errorText.includes('<html')) {
+          throw new Error('Server error: Please check API endpoint');
+        }
+        
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (e) {
+          throw new Error(`Server error: ${errorText}`);
+        }
+        
+        throw new Error(errorData.message || 'Failed to add song to queue');
       }
-      
-      let errorData;
-      try {
-        errorData = JSON.parse(errorText);
-      } catch (e) {
-        throw new Error(`Server error: ${errorText}`);
-      }
-      
-      throw new Error(errorData.message || 'Failed to add song to queue');
+
+      alert(`"${previewVideo.title}" has been added to the queue!`);
+      setYoutubeUrl('');
+      setPreviewVideo(null);
+      await refreshStreams();
+
+    } catch (error: any) {
+      console.error('Error adding song:', error);
+      setError(error.message || 'Failed to add song to queue');
+    } finally {
+      setAddingToQueue(false);
     }
+  };
 
-    const result = await addRes.json();
-    console.log("[AddToQueue] Success:", result);
-
-    // SUCCESS: Show success message
-    alert(`"${previewVideo.title}" has been added to the queue!`);
-
-    // Clear form and refresh
-    setYoutubeUrl('');
-    setPreviewVideo(null);
-    
-    // IMPORTANT: Make sure this function refreshes the queue properly
-    await refreshStreams();
-
-  } catch (error: any) {
-    console.error('Error adding song:', error);
-    setError(error.message || 'Failed to add song to queue');
-  } finally {
-    setAddingToQueue(false);
-  }
-};
-  // Vote functions
   const upvote = async (streamId: string) => {
     try {
       const res = await fetch("/api/streams/upvote", {
@@ -303,7 +286,6 @@ const addToQueue = async () => {
     }
   };
 
-  // Play next song
   const playNext = (song: Stream) => {
     setCurrentVideo({
       id: song.extractedId,
@@ -312,10 +294,10 @@ const addToQueue = async () => {
       duration: song.duration
     });
   };
-  
 
-  // Share functionality
-  const shareUrl = typeof window !== 'undefined' ? `${window.location.hostname}/creator/${creatorId}` : '';
+  const shareUrl = typeof window !== 'undefined' 
+    ? `${window.location.origin}/creator/${creatorId || 'your-id'}` 
+    : '';
   const shareText = "🎵 Join my music stream! Vote for the next song and help shape our playlist together!";
 
   const copyToClipboard = async () => {
@@ -329,202 +311,165 @@ const addToQueue = async () => {
   };
 
   return (
-   <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-zinc-50 text-gray-900">
-      <div className="container mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent mb-2">
-            🎵 StreamVote Music
-          </h1>
-          <p className="text-gray-600">Vote for the next song and shape the playlist together!</p>
-        </div>
-
-        {/* Error Display */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-red-700 text-sm">Error: {error}</p>
-            <button 
-              onClick={() => setError(null)}
-              className="mt-2 text-red-600 hover:text-red-800 text-sm underline"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        <div className="grid lg:grid-cols-3 gap-6 lg:items-start">
-          {/* Main Video Player */}
-          <div className="lg:col-span-2 flex flex-col gap-6">
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 border border-gray-200 shadow-lg">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                <span className="text-sm font-medium text-gray-600">NOW PLAYING</span>
+    <div className="min-h-screen bg-gray-900 text-white p-8">
+      <div className="max-w-6xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-1 space-y-8">
+            <div className="bg-gray-800 rounded-xl p-6">
+              <h2 className="text-2xl font-bold mb-4">Now Playing</h2>
+              <div className="aspect-w-16 aspect-h-9 rounded-lg overflow-hidden">
+                <img
+                  src={currentVideo.thumbnail}
+                  alt={currentVideo.title}
+                  className="w-full h-full object-cover"
+                />
               </div>
-              
-              <div className="aspect-video bg-black rounded-lg overflow-hidden mb-4">
-                <iframe
-                  width="100%"
-                  height="100%"
-                  src={`https://www.youtube.com/embed/${currentVideo.id}?autoplay=1`}
-                  title="YouTube video player"
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                  className="w-full h-full"
-                ></iframe>
-              </div>
-              
-              <h2 className="text-xl font-semibold mb-2">{currentVideo.title}</h2>
-              <div className="flex items-center gap-4 text-sm text-gray-500">
-                <span className="flex items-center gap-1">
-                  <Clock className="w-4 h-4" />
-                  {currentVideo.duration}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Users className="w-4 h-4" />
-                  {streams.length} in queue
-                </span>
+              <div className="mt-4">
+                <h3 className="text-xl font-bold">{currentVideo.title}</h3>
+                <div className="flex items-center mt-2 text-gray-400">
+                  <Clock className="h-4 w-4 mr-1" />
+                  <span>{currentVideo.duration}</span>
+                </div>
               </div>
             </div>
 
-            {/* Add New Song */}
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 border border-gray-200 shadow-lg">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold flex items-center gap-2">
-                  <Plus className="w-5 h-5" />
-                  Submit a Song
-                </h3>
-                <button
-                  onClick={() => setShowShareModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-medium hover:from-blue-600 hover:to-blue-700 transition-all transform hover:scale-105 shadow-md text-sm"
-                >
-                  <Share2 className="w-4 h-4" />
-                  Share Stream
-                </button>
-              </div>
-              
+            <div className="bg-gray-800 rounded-xl p-6">
+              <h2 className="text-2xl font-bold mb-4">Add to Queue</h2>
               <div className="space-y-4">
                 <div>
+                  <label htmlFor="youtubeUrl" className="block text-sm font-medium text-gray-300 mb-1">
+                    YouTube URL
+                  </label>
                   <input
                     type="text"
-                    placeholder="Paste YouTube URL here..."
+                    id="youtubeUrl"
                     value={youtubeUrl}
                     onChange={(e) => handleUrlChange(e.target.value)}
-                    className="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all placeholder-gray-400"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
-                
+
                 {previewVideo && (
-                  <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <img 
-                      src={previewVideo.thumbnail} 
-                      alt="Preview"
-                      className="w-20 h-15 object-cover rounded"
-                    />
-                    <div className="flex-1">
-                      <h4 className="font-medium">
-                        {fetchingMetadata ? (
-                          <span className="flex items-center gap-2">
-                            <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
-                            Loading title...
-                          </span>
-                        ) : (
-                          previewVideo.title
-                        )}
-                      </h4>
-                      <p className="text-sm text-gray-500">{previewVideo.duration}</p>
+                  <div className="bg-gray-700 rounded-lg p-4">
+                    <div className="flex">
+                      <img
+                        src={previewVideo.thumbnail}
+                        alt={previewVideo.title}
+                        className="w-16 h-12 object-cover rounded"
+                      />
+                      <div className="ml-3">
+                        <h3 className="font-medium">{previewVideo.title}</h3>
+                        <div className="flex items-center text-sm text-gray-400">
+                          <Clock className="h-3 w-3 mr-1" />
+                          <span>{previewVideo.duration}</span>
+                        </div>
+                      </div>
                     </div>
-                    <button
-                      onClick={addToQueue}
-                      disabled={addingToQueue || fetchingMetadata || previewVideo.title === 'Loading...'}
-                      className="px-6 py-2 bg-gradient-to-r from-gray-700 to-gray-600 text-white rounded-lg font-medium hover:from-gray-800 hover:to-gray-700 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                    >
-                      {addingToQueue ? (
-                        <span className="flex items-center gap-2">
-                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                          Adding...
-                        </span>
-                      ) : fetchingMetadata ? 'Loading...' : 'Add to Queue'}
-                    </button>
                   </div>
                 )}
+
+                <button
+                  onClick={addToQueue}
+                  disabled={!previewVideo || addingToQueue}
+                  className={`w-full py-3 px-4 rounded-lg font-medium ${
+                    previewVideo && !addingToQueue
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                      : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                  } transition-colors`}
+                >
+                  {addingToQueue ? 'Adding...' : 'Add to Queue'}
+                </button>
               </div>
             </div>
           </div>
 
-          {/* Queue */}
-          <div className="lg:col-span-1 lg:h-full">
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 border border-gray-200 shadow-lg h-full flex flex-col">
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Play className="w-5 h-5" />
-                Up Next ({streams.length})
-              </h3>
-              
-              <div className="space-y-3 flex-1 overflow-y-auto">
+          <div className="lg:col-span-2 space-y-8">
+            <div className="bg-gray-800 rounded-xl p-6">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold">Queue</h2>
+                <button
+                  onClick={() => setShowShareModal(true)}
+                  className="flex items-center bg-blue-600 hover:bg-blue-700 py-2 px-4 rounded-lg transition-colors"
+                >
+                  <Share2 className="h-5 w-5 mr-2" />
+                  Share
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-gray-800 rounded-xl p-6">
+              <div className="space-y-4">
                 {loading ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin mx-auto mb-2"></div>
-                    <p>Loading streams...</p>
+                  <div className="text-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+                    <p className="mt-4">Loading queue...</p>
                   </div>
                 ) : error ? (
-                  <div className="text-center py-8 text-red-500">
-                    <p>Error loading queue</p>
-                    <button 
+                  <div className="bg-red-900/20 border border-red-700 rounded-lg p-4">
+                    <p className="text-red-500">Error: {error}</p>
+                    <button
                       onClick={refreshStreams}
-                      className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                      className="mt-2 px-4 py-2 bg-red-700 rounded-lg hover:bg-red-600 transition-colors"
                     >
                       Retry
                     </button>
                   </div>
                 ) : streams.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <p>No songs in queue</p>
-                    <p className="text-sm">Add some music above!</p>
+                  <div className="text-center py-12">
+                    <Users className="h-12 w-12 mx-auto text-gray-500" />
+                    <h3 className="mt-4 text-xl font-medium text-gray-300">Queue is empty</h3>
+                    <p className="mt-2 text-gray-500">Add songs using the form on the left</p>
                   </div>
                 ) : (
-                  streams.map((song, index) => (
-                    <div key={song.id} className="group relative">
-                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-all">
-                        <div className="text-xs font-bold text-gray-500 w-6">
-                          #{index + 1}
-                        </div>
-                        
-                        <img 
-                          src={song.thumbnail} 
-                          alt={song.title}
-                          className="w-12 h-9 object-cover rounded cursor-pointer"
-                          onClick={() => playNext(song)}
+                  streams.map((stream) => (
+                    <div
+                      key={stream.id}
+                      className="flex items-center justify-between bg-gray-700 rounded-lg p-4 hover:bg-gray-600 transition-colors"
+                    >
+                      <div className="flex items-center">
+                        <img
+                          src={stream.thumbnail}
+                          alt={stream.title}
+                          className="w-16 h-12 object-cover rounded"
                         />
-                        
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-medium text-sm truncate">{song.title}</h4>
-                          <p className="text-xs text-gray-500">by {song.submittedBy}</p>
+                        <div className="ml-4">
+                          <h3 className="font-medium">{stream.title}</h3>
+                          <div className="flex items-center text-sm text-gray-400">
+                            <Users className="h-3 w-3 mr-1" />
+                            <span>{stream.submittedBy}</span>
+                            <span className="mx-2">•</span>
+                            <Clock className="h-3 w-3 mr-1" />
+                            <span>{stream.duration}</span>
+                          </div>
                         </div>
-                        
-                        <div className="flex flex-col items-center gap-1">
+                      </div>
+                      <div className="flex items-center space-x-4">
+                        <div className="flex items-center">
                           <button
-                            onClick={() => upvote(song.id)}
-                            className={`p-1 rounded transition-colors ${
-                              song.haveUpvoted 
-                                ? 'bg-green-100 text-green-700' 
-                                : 'hover:bg-green-100 text-green-600'
+                            onClick={() => upvote(stream.id)}
+                            className={`p-1 rounded-full ${
+                              stream.haveUpvoted
+                                ? 'text-blue-500'
+                                : 'text-gray-400 hover:text-blue-500'
                             }`}
-                            disabled={song.haveUpvoted}
                           >
-                            <ChevronUp className="w-4 h-4 cursor-pointer" />
+                            <ChevronUp className="h-5 w-5" />
                           </button>
-                          
-                          <span className="text-xs font-bold px-2 py-1 bg-gray-200 text-gray-800 rounded">
-                            {song.votes}
-                          </span>
-                          
+                          <span className="mx-1 min-w-[20px] text-center">{stream.votes}</span>
                           <button
-                            onClick={() => downvote(song.id)}
-                            className="p-1 hover:bg-red-100 rounded transition-colors"
+                            onClick={() => downvote(stream.id)}
+                            className="p-1 rounded-full text-gray-400 hover:text-red-500"
                           >
-                            <ChevronDown className="w-4 h-4 text-red-600 cursor-pointer" />
+                            <ChevronDown className="h-5 w-5" />
                           </button>
                         </div>
+                        <button
+                          onClick={() => playNext(stream)}
+                          className="p-2 rounded-full bg-green-600 hover:bg-green-500 text-white"
+                        >
+                          <Play className="h-5 w-5" />
+                        </button>
                       </div>
                     </div>
                   ))
@@ -533,57 +478,52 @@ const addToQueue = async () => {
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Share Modal */}
-        {showShareModal && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-bold text-gray-900">Share Your Stream</h3>
-                <button
-                  onClick={() => setShowShareModal(false)}
-                  className="text-gray-400 hover:text-gray-600 text-xl"
-                >
-                  ×
-                </button>
-              </div>
-              
-              <div className="space-y-4">
-                <p className="text-gray-600 text-sm">
-                  Invite your friends to join the stream and vote for songs together!
-                </p>
-                
-                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-medium text-gray-700">Stream Link:</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={shareUrl}
-                      readOnly
-                      className="flex-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded focus:outline-none"
-                    />
-                    <button
-                      onClick={copyToClipboard}
-                      className="flex items-center gap-1 px-3 py-2 bg-gray-700 text-white rounded hover:bg-gray-800 transition-colors"
-                    >
-                      {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                      {copied ? 'Copied!' : 'Copy'}
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="text-center pt-4 border-t border-gray-200">
-                  <p className="text-xs text-gray-500">
-                    💡 Tip: Copy the link and share it anywhere to invite others!
-                  </p>
-                </div>
-              </div>
+      {showShareModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-xl p-6 max-w-md w-full">
+            <h2 className="text-2xl font-bold mb-4">Share this Stream</h2>
+            <p className="text-gray-400 mb-4">
+              Share the link below to invite others to your stream. They can add songs and vote!
+            </p>
+            
+            <div className="flex mb-4">
+              <input
+                type="text"
+                readOnly
+                value={shareUrl}
+                className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-l-lg focus:outline-none"
+              />
+              <button
+                onClick={copyToClipboard}
+                className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-r-lg flex items-center"
+              >
+                {copied ? (
+                  <>
+                    <Check className="h-5 w-5 mr-2" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-5 w-5 mr-2" />
+                    Copy
+                  </>
+                )}
+              </button>
+            </div>
+            
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowShareModal(false)}
+                className="px-4 py-2 border border-gray-600 rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Close
+              </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

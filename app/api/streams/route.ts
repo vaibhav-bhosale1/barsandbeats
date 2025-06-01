@@ -125,9 +125,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: "Invalid YouTube URL" }, { status: 400 });
     }
 
-    // FIXED: Use the authenticated user's ID, not the creatorId from request
-    // This ensures the video is added to the current user's queue
-    const actualCreatorId = user.id; // Changed from: creatorId || user.id;
+    // Use creatorId if provided (for adding to someone else's queue) or default to current user
+    const actualCreatorId = creatorId || user.id;
+    console.log("[POST] Final actualCreatorId being used:", actualCreatorId);
     console.log("[POST] Using actualCreatorId:", actualCreatorId);
 
     const existingStream = await prismaClient.stream.findFirst({
