@@ -47,6 +47,7 @@ export default function StreamView({
     title: string;
     thumbnail: string;
     duration: string;
+    streamId: string; // Add streamId to track which stream is playing
   } | null>(null);
   const [previewVideo, setPreviewVideo] = useState<null | {
     id: string;
@@ -61,14 +62,63 @@ export default function StreamView({
   
   const playerRef = useRef<any>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const videoEndedRef = useRef(false);
 
-  // Find the highest voted video
-  const findHighestVotedVideo = (): Stream | null => {
-    if (streams.length === 0) return null;
+  // Fetch fresh streams from server
+  const fetchStreams = async () => {
+    const url = creatorId 
+      ? `/api/streams?creatorId=${creatorId}`
+      : '/api/streams';
     
-    return streams.reduce((highest, current) => 
-      current.votes > highest.votes ? current : highest, streams[0]
+    const res = await fetch(url, {
+      credentials: "include",
+      headers: { 
+        'Cache-Control': 'no-cache',
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!res.ok) {
+      const errorText = await res.text();
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch (e) {
+        throw new Error(`HTTP error ${res.status}: ${errorText}`);
+      }
+      throw new Error(errorData.message || `API request failed with status ${res.status}`);
+    }
+    
+    const data = await res.json();
+    return data.streams;
+  };
+
+  // Find the highest voted video from a given array
+  const findHighestVotedVideo = (streamList: Stream[]): Stream | null => {
+    if (streamList.length === 0) return null;
+    
+    return streamList.reduce((highest, current) => 
+      current.votes > highest.votes ? current : highest, streamList[0]
     );
+  };
+
+  // Delete current video from database
+  const deleteCurrentVideoFromDB = async (streamId: string) => {
+    try {
+      const response = await fetch(`/api/streams/${streamId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        console.error('Failed to delete stream from database');
+      }
+    } catch (error) {
+      console.error('Error deleting stream:', error);
+    }
   };
 
   // Play the next highest voted video
@@ -80,46 +130,74 @@ export default function StreamView({
         timeoutRef.current = null;
       }
       
-      // Get next highest voted video
-      const nextVideo = findHighestVotedVideo();
+      // Delete current video from database if it exists
+      if (currentVideo?.streamId) {
+        await deleteCurrentVideoFromDB(currentVideo.streamId);
+        console.log("deleted")
+      }
+      
+      // Fetch fresh streams from server to get the latest queue
+      const freshStreams = await fetchStreams();
+      
+      // Get next highest voted video from fresh data
+      const nextVideo = findHighestVotedVideo(freshStreams);
       
       if (nextVideo) {
-        // Remove video from queue
-        const updatedStreams = streams.filter(stream => stream.id !== nextVideo.id);
-        setStreams(updatedStreams);
+        // Update local state with fresh streams (minus the one we're about to play)
+        setStreams(freshStreams.filter(stream => stream.id !== nextVideo.id));
         
         // Set new current video
         setCurrentVideo({
           id: nextVideo.extractedId,
           title: nextVideo.title,
           thumbnail: nextVideo.thumbnail,
-          duration: nextVideo.duration
+          duration: nextVideo.duration,
+          streamId: nextVideo.id
         });
         
+        // Reset video ended flag
+        videoEndedRef.current = false;
+        
         // Preload next video
-        preloadNextVideo();
+        preloadNextVideo(nextVideo.id, freshStreams);
       } else {
         // No more videos in queue
         setCurrentVideo(null);
+        setStreams([]); // Clear the queue
       }
     } catch (error) {
+      console.error('Failed to play next video:', error);
       setError('Failed to play next video');
     }
   };
 
-  // Preload the next video for gapless playback
-  const preloadNextVideo = () => {
-    const nextVideo = findHighestVotedVideo();
+  // Preload the next video for gapless playback (excluding current video)
+  const preloadNextVideo = (excludeStreamId?: string, streamList?: Stream[]) => {
+    const availableStreams = streamList || streams;
+    const filteredStreams = excludeStreamId 
+      ? availableStreams.filter(stream => stream.id !== excludeStreamId)
+      : availableStreams;
+      
+    if (filteredStreams.length === 0) return;
+    
+    const nextVideo = filteredStreams.reduce((highest, current) => 
+      current.votes > highest.votes ? current : highest, filteredStreams[0]
+    );
+    
     if (nextVideo) {
       // Create an invisible iframe to preload the video
       const preloadIframe = document.createElement('iframe');
       preloadIframe.src = `https://www.youtube.com/embed/${nextVideo.extractedId}?autoplay=0&mute=1`;
       preloadIframe.style.display = 'none';
+      preloadIframe.style.position = 'absolute';
+      preloadIframe.style.left = '-9999px';
       document.body.appendChild(preloadIframe);
       
       // Remove after a short delay
       setTimeout(() => {
-        document.body.removeChild(preloadIframe);
+        if (document.body.contains(preloadIframe)) {
+          document.body.removeChild(preloadIframe);
+        }
       }, 5000);
     }
   };
@@ -129,48 +207,30 @@ export default function StreamView({
       setLoading(true);
       setError(null);
       
-      const url = creatorId 
-        ? `/api/streams?creatorId=${creatorId}`
-        : '/api/streams';
+      const freshStreams = await fetchStreams();
+      setStreams(freshStreams);
       
-      const res = await fetch(url, {
-        credentials: "include",
-        headers: { 
-          'Cache-Control': 'no-cache',
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (!res.ok) {
-        const errorText = await res.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch (e) {
-          throw new Error(`HTTP error ${res.status}: ${errorText}`);
-        }
-        throw new Error(errorData.message || `API request failed with status ${res.status}`);
-      }
-      
-      const data = await res.json();
-      setStreams(data.streams);
-      
-      // Set initial video if none is playing
-      if (!currentVideo && data.streams.length > 0) {
-        const highestVoted = findHighestVotedVideo();
+      // Auto-play logic: If no video is currently playing and we have streams
+      if (!currentVideo && freshStreams.length > 0) {
+        const highestVoted = freshStreams.reduce((highest: Stream, current: Stream) => 
+          current.votes > highest.votes ? current : highest, freshStreams[0]
+        );
+        
         if (highestVoted) {
+          // Set as current video
           setCurrentVideo({
             id: highestVoted.extractedId,
             title: highestVoted.title,
             thumbnail: highestVoted.thumbnail,
-            duration: highestVoted.duration
+            duration: highestVoted.duration,
+            streamId: highestVoted.id
           });
           
-          // Remove from queue
-          setStreams(prev => prev.filter(stream => stream.id !== highestVoted.id));
+          // Remove from local state (will be deleted from DB when video ends)
+          setStreams(freshStreams.filter(stream => stream.id !== highestVoted.id));
           
           // Preload next video
-          preloadNextVideo();
+          preloadNextVideo(highestVoted.id, freshStreams);
         }
       }
     } catch (error) {
@@ -183,7 +243,51 @@ export default function StreamView({
 
   // Handle when a video ends
   const handleVideoEnd = () => {
-    playNextVideo();
+    if (videoEndedRef.current) return; // Prevent multiple calls
+    videoEndedRef.current = true;
+    
+    console.log('Video ended, playing next...');
+    
+    // Small delay to ensure any cleanup is done
+    setTimeout(() => {
+      playNextVideo();
+    }, 500);
+  };
+
+  // Fallback: Check video duration and current time
+  const setupVideoEndFallback = () => {
+    if (!currentVideo) return;
+    
+    const duration = parseDuration(currentVideo.duration);
+    if (duration > 0) {
+      console.log(`Setting up ${duration}s timeout for: ${currentVideo.title}`);
+      // Set a timeout for when video should end
+      const fallbackTimeout = setTimeout(() => {
+        if (!videoEndedRef.current) {
+          console.log('Duration-based fallback triggered');
+          handleVideoEnd();
+        }
+      }, (duration + 5) * 1000); // Add 5 seconds buffer
+      
+      timeoutRef.current = fallbackTimeout;
+    } else {
+      // If no duration info, set a reasonable default (most videos are under 10 minutes)
+      console.log('No duration info, setting 10 minute fallback');
+      const fallbackTimeout = setTimeout(() => {
+        if (!videoEndedRef.current) {
+          console.log('Default 10-minute fallback triggered');
+          handleVideoEnd();
+        }
+      }, 10 * 60 * 1000);
+      
+      timeoutRef.current = fallbackTimeout;
+    }
+  };
+
+  // Add manual skip function for testing
+  const skipCurrentVideo = () => {
+    console.log('Manual skip triggered');
+    handleVideoEnd();
   };
 
   useEffect(() => {
@@ -199,52 +303,151 @@ export default function StreamView({
     };
   }, [creatorId]);
 
-  // Set up video end detection
+  // Set up video end detection with multiple methods
   useEffect(() => {
     if (!currentVideo) return;
     
-    const checkVideoEnd = setInterval(() => {
-      try {
-        const player = playerRef.current;
-        if (player && player.contentWindow) {
-          player.contentWindow.postMessage(
-            '{"event":"command","func":"getPlayerState","args":""}',
-            '*'
-          );
-        }
-      } catch (e) {
-        console.error('Error checking video state:', e);
-      }
-    }, 1000);
-
-    // Listen for messages from YouTube player
+    let progressCheckInterval: NodeJS.Timeout;
+    let lastKnownTime = 0;
+    let stuckCounter = 0;
+    
+    console.log('Setting up video end detection for:', currentVideo.title);
+    
+    // Method 1: Listen for YouTube iframe messages
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== 'https://www.youtube.com') return;
+      
       try {
-        const data = JSON.parse(event.data);
-        if (data.info && data.info.playerState === 0) {
-          // Video ended
+        let data;
+        if (typeof event.data === 'string') {
+          data = JSON.parse(event.data);
+        } else {
+          data = event.data;
+        }
+        
+        // Check for video end state
+        if (data.event === 'onStateChange' && data.info === 0) {
+          console.log('YouTube API: Video ended');
           handleVideoEnd();
         }
+        
+        // Track video progress
+        if (data.event === 'video-progress' && data.info) {
+          lastKnownTime = data.info.currentTime || 0;
+          stuckCounter = 0; // Reset stuck counter when we get progress
+        }
       } catch (e) {
-        // Not a YouTube message we care about
+        // Ignore invalid messages
       }
     };
 
-    window.addEventListener('message', handleMessage);
+    // Method 2: Check if video is stuck (no progress for extended time)
+    const checkVideoProgress = () => {
+      const duration = parseDuration(currentVideo.duration);
+      
+      // If we know the duration and current time is close to end
+      if (duration > 0 && lastKnownTime > 0) {
+        const timeRemaining = duration - lastKnownTime;
+        
+        if (timeRemaining <= 2) { // Within 2 seconds of end
+          console.log(`Video near end: ${timeRemaining}s remaining`);
+          handleVideoEnd();
+          return;
+        }
+      }
+      
+      // Check if video seems stuck (no progress updates)
+      stuckCounter++;
+      if (stuckCounter > 10) { // 10 checks with no progress = ~20 seconds
+        console.log('Video seems stuck, checking if should end');
+        if (duration > 0 && lastKnownTime > duration * 0.95) {
+          // If we're 95% through the video and no progress, assume it ended
+          console.log('Video likely ended (stuck near end)');
+          handleVideoEnd();
+        }
+      }
+    };
 
+    // Method 3: Simple timeout fallback based on duration
+    let timeoutFallback: NodeJS.Timeout;
+    const duration = parseDuration(currentVideo.duration);
+    if (duration > 0) {
+      timeoutFallback = setTimeout(() => {
+        if (!videoEndedRef.current) {
+          console.log('Timeout fallback: Video should have ended');
+          handleVideoEnd();
+        }
+      }, (duration + 10) * 1000); // 10 second buffer
+    }
+
+    // Method 4: Initialize iframe communication
+    const initIframe = () => {
+      try {
+        const iframe = playerRef.current;
+        if (iframe && iframe.contentWindow) {
+          // Try to enable event listening
+          iframe.contentWindow.postMessage(
+            '{"event":"listening","id":"' + Math.random() + '"}',
+            'https://www.youtube.com'
+          );
+          console.log('Attempted to initialize YouTube iframe communication');
+        }
+      } catch (e) {
+        console.log('Could not initialize iframe communication:', e.message);
+      }
+    };
+
+    // Start all detection methods
+    window.addEventListener('message', handleMessage);
+    progressCheckInterval = setInterval(checkVideoProgress, 2000);
+    
+    // Initialize iframe after a delay
+    const initTimeout = setTimeout(initIframe, 1000);
+
+    // Cleanup
     return () => {
-      clearInterval(checkVideoEnd);
       window.removeEventListener('message', handleMessage);
+      if (progressCheckInterval) clearInterval(progressCheckInterval);
+      if (timeoutFallback) clearTimeout(timeoutFallback);
+      if (initTimeout) clearTimeout(initTimeout);
     };
   }, [currentVideo]);
 
-  // Handle when a new video is added to empty queue
+  // Auto-play when first song is added to empty queue
   useEffect(() => {
     if (!currentVideo && streams.length > 0) {
-      playNextVideo();
+      console.log('No current video but streams available, starting playback...');
+      const highestVoted = findHighestVotedVideo(streams);
+      if (highestVoted) {
+        setCurrentVideo({
+          id: highestVoted.extractedId,
+          title: highestVoted.title,
+          thumbnail: highestVoted.thumbnail,
+          duration: highestVoted.duration,
+          streamId: highestVoted.id
+        });
+        
+        // Remove from queue
+        setStreams(prev => prev.filter(stream => stream.id !== highestVoted.id));
+        
+        // Reset video ended flag
+        videoEndedRef.current = false;
+        
+        // Preload next
+        preloadNextVideo(highestVoted.id);
+        
+        // Setup fallback timer
+        setupVideoEndFallback();
+      }
     }
   }, [streams, currentVideo]);
+
+  // Setup fallback when current video changes
+  useEffect(() => {
+    if (currentVideo) {
+      setupVideoEndFallback();
+    }
+  }, [currentVideo]);
 
   const extractVideoId = (url: string) => {
     const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
@@ -377,7 +580,10 @@ export default function StreamView({
         body: JSON.stringify({ streamId }),
         credentials: "include"
       });
-      await refreshStreams();
+      
+      if (res.ok) {
+        await refreshStreams();
+      }
     } catch (error) {
       setError('Failed to upvote. Please try again.');
     }
@@ -391,19 +597,13 @@ export default function StreamView({
         body: JSON.stringify({ streamId }),
         credentials: "include"
       });
-      await refreshStreams();
+      
+      if (res.ok) {
+        await refreshStreams();
+      }
     } catch (error) {
       setError('Failed to downvote. Please try again.');
     }
-  };
-
-  const playNext = (song: Stream) => {
-    setCurrentVideo({
-      id: song.extractedId,
-      title: song.title,
-      thumbnail: song.thumbnail,
-      duration: song.duration
-    });
   };
 
   const shareUrl = typeof window !== 'undefined' 
@@ -419,6 +619,7 @@ export default function StreamView({
       console.error('Failed to copy:', err);
     }
   };
+
   return (
      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-zinc-50 text-gray-900">
       <div className="container mx-auto px-4 py-6">
@@ -465,7 +666,7 @@ export default function StreamView({
                       ref={playerRef}
                       width="100%"
                       height="100%"
-                      src={`https://www.youtube.com/embed/${currentVideo.id}?autoplay=1&enablejsapi=1`}
+                      src={`https://www.youtube.com/embed/${currentVideo.id}?autoplay=1&enablejsapi=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`}
                       title="YouTube video player"
                       frameBorder="0"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -510,6 +711,7 @@ export default function StreamView({
                   <Share2 className="w-4 h-4" />
                   Share Stream
                 </button>
+                
               </div>
               
               <div className="space-y-4">
@@ -591,7 +793,9 @@ export default function StreamView({
                     <p className="text-sm">Add some music above!</p>
                   </div>
                 ) : (
-                  streams.map((song, index) => (
+                  streams
+                    .sort((a, b) => b.votes - a.votes) // Sort by votes descending
+                    .map((song, index) => (
                     <div key={song.id} className="group relative">
                       <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-all">
                         <div className="text-xs font-bold text-gray-500 w-6">
@@ -601,8 +805,7 @@ export default function StreamView({
                         <img 
                           src={song.thumbnail} 
                           alt={song.title}
-                          className="w-12 h-9 object-cover rounded cursor-pointer"
-                          onClick={() => playNextVideo()}
+                          className="w-12 h-9 object-cover rounded"
                         />
                         
                         <div className="flex-1 min-w-0">
