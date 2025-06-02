@@ -148,6 +148,7 @@ export default function StreamView({
           streamId: nextVideo.id
         });
         
+        // Filter out the next video from streams
         setStreams(freshStreams.filter(stream => stream.id !== nextVideo.id));
         videoEndedRef.current = false;
         preloadNextVideo(nextVideo.id, freshStreams);
@@ -195,13 +196,20 @@ export default function StreamView({
       setError(null);
       
       const freshStreams = await fetchStreams();
-      setStreams(freshStreams);
+      
+      // Filter out current video if exists
+      let filteredStreams = freshStreams;
+      if (currentVideoRef.current) {
+        filteredStreams = freshStreams.filter(
+          stream => stream.id !== currentVideoRef.current?.streamId
+        );
+      }
+      
+      setStreams(filteredStreams);
       
       // Only auto-play if no video is currently playing
       if (!currentVideoRef.current && freshStreams.length > 0) {
-        const highestVoted = freshStreams.reduce((highest: Stream, current: Stream) => 
-          current.votes > highest.votes ? current : highest, freshStreams[0]
-        );
+        const highestVoted = findHighestVotedVideo(freshStreams);
         
         if (highestVoted) {
           setCurrentVideo({
@@ -212,6 +220,7 @@ export default function StreamView({
             streamId: highestVoted.id
           });
           
+          // Filter out the new current video
           setStreams(freshStreams.filter(stream => stream.id !== highestVoted.id));
           videoEndedRef.current = false;
           preloadNextVideo(highestVoted.id, freshStreams);
@@ -340,25 +349,6 @@ export default function StreamView({
       iframeLoaded = false;
     };
   }, [currentVideo]);
-
-  useEffect(() => {
-    if (!currentVideo && streams.length > 0) {
-      const highestVoted = findHighestVotedVideo(streams);
-      if (highestVoted) {
-        setCurrentVideo({
-          id: highestVoted.extractedId,
-          title: highestVoted.title,
-          thumbnail: highestVoted.thumbnail,
-          duration: highestVoted.duration,
-          streamId: highestVoted.id
-        });
-        
-        setStreams(prev => prev.filter(stream => stream.id !== highestVoted.id));
-        videoEndedRef.current = false;
-        preloadNextVideo(highestVoted.id);
-      }
-    }
-  }, [streams, currentVideo]);
 
   const extractVideoId = (url: string) => {
     const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
