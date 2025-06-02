@@ -27,7 +27,7 @@ model Stream {
   bigImage  String      @default("")
   extractedId String
   user     User        @relation(fields: [userId], references: [id])
-  upvotes  Upvote[]     @relation(onDelete: Cascade)
+  upvotes  Upvote[]    
 }
 
 model Upvote {
