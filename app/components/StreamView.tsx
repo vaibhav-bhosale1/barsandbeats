@@ -1,5 +1,5 @@
 "use client"
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { ChevronUp, ChevronDown, Play, Plus, Users, Clock, Share2, Copy, Check } from 'lucide-react';
 
 const REFRESH_INTERVAL = 10 * 1000;
@@ -19,6 +19,22 @@ interface StreamViewProps {
   creatorId?: string;
 }
 
+// Helper function to convert duration string to seconds
+const parseDuration = (duration: string): number => {
+  const parts = duration.split(':').map(part => parseInt(part));
+  let seconds = 0;
+  
+  if (parts.length === 1) {
+    seconds = parts[0];
+  } else if (parts.length === 2) {
+    seconds = parts[0] * 60 + parts[1];
+  } else if (parts.length === 3) {
+    seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+  
+  return seconds;
+};
+
 export default function StreamView({
   creatorId
 }: StreamViewProps) {
@@ -26,12 +42,12 @@ export default function StreamView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState('');
-  const [currentVideo, setCurrentVideo] = useState({
-    id: 'dQw4w9WgXcQ',
-    title: 'Rick Astley - Never Gonna Give You Up',
-    thumbnail: 'https://img.youtube.com/vi/dQw4w9WgXcQ/maxresdefault.jpg',
-    duration: '3:33'
-  });
+  const [currentVideo, setCurrentVideo] = useState<{
+    id: string;
+    title: string;
+    thumbnail: string;
+    duration: string;
+  } | null>(null);
   const [previewVideo, setPreviewVideo] = useState<null | {
     id: string;
     title: string;
@@ -42,6 +58,71 @@ export default function StreamView({
   const [copied, setCopied] = useState(false);
   const [fetchingMetadata, setFetchingMetadata] = useState(false);
   const [addingToQueue, setAddingToQueue] = useState(false);
+  
+  const playerRef = useRef<any>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Find the highest voted video
+  const findHighestVotedVideo = (): Stream | null => {
+    if (streams.length === 0) return null;
+    
+    return streams.reduce((highest, current) => 
+      current.votes > highest.votes ? current : highest, streams[0]
+    );
+  };
+
+  // Play the next highest voted video
+  const playNextVideo = async () => {
+    try {
+      // Clear any existing timer
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      
+      // Get next highest voted video
+      const nextVideo = findHighestVotedVideo();
+      
+      if (nextVideo) {
+        // Remove video from queue
+        const updatedStreams = streams.filter(stream => stream.id !== nextVideo.id);
+        setStreams(updatedStreams);
+        
+        // Set new current video
+        setCurrentVideo({
+          id: nextVideo.extractedId,
+          title: nextVideo.title,
+          thumbnail: nextVideo.thumbnail,
+          duration: nextVideo.duration
+        });
+        
+        // Preload next video
+        preloadNextVideo();
+      } else {
+        // No more videos in queue
+        setCurrentVideo(null);
+      }
+    } catch (error) {
+      setError('Failed to play next video');
+    }
+  };
+
+  // Preload the next video for gapless playback
+  const preloadNextVideo = () => {
+    const nextVideo = findHighestVotedVideo();
+    if (nextVideo) {
+      // Create an invisible iframe to preload the video
+      const preloadIframe = document.createElement('iframe');
+      preloadIframe.src = `https://www.youtube.com/embed/${nextVideo.extractedId}?autoplay=0&mute=1`;
+      preloadIframe.style.display = 'none';
+      document.body.appendChild(preloadIframe);
+      
+      // Remove after a short delay
+      setTimeout(() => {
+        document.body.removeChild(preloadIframe);
+      }, 5000);
+    }
+  };
 
   const refreshStreams = async () => {
     try {
@@ -73,6 +154,25 @@ export default function StreamView({
       
       const data = await res.json();
       setStreams(data.streams);
+      
+      // Set initial video if none is playing
+      if (!currentVideo && data.streams.length > 0) {
+        const highestVoted = findHighestVotedVideo();
+        if (highestVoted) {
+          setCurrentVideo({
+            id: highestVoted.extractedId,
+            title: highestVoted.title,
+            thumbnail: highestVoted.thumbnail,
+            duration: highestVoted.duration
+          });
+          
+          // Remove from queue
+          setStreams(prev => prev.filter(stream => stream.id !== highestVoted.id));
+          
+          // Preload next video
+          preloadNextVideo();
+        }
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       setError(errorMessage);
@@ -81,11 +181,70 @@ export default function StreamView({
     }
   };
 
+  // Handle when a video ends
+  const handleVideoEnd = () => {
+    playNextVideo();
+  };
+
   useEffect(() => {
     refreshStreams();
     const interval = setInterval(refreshStreams, REFRESH_INTERVAL);
-    return () => clearInterval(interval);
+    
+    // Cleanup timers on unmount
+    return () => {
+      clearInterval(interval);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
   }, [creatorId]);
+
+  // Set up video end detection
+  useEffect(() => {
+    if (!currentVideo) return;
+    
+    const checkVideoEnd = setInterval(() => {
+      try {
+        const player = playerRef.current;
+        if (player && player.contentWindow) {
+          player.contentWindow.postMessage(
+            '{"event":"command","func":"getPlayerState","args":""}',
+            '*'
+          );
+        }
+      } catch (e) {
+        console.error('Error checking video state:', e);
+      }
+    }, 1000);
+
+    // Listen for messages from YouTube player
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== 'https://www.youtube.com') return;
+      try {
+        const data = JSON.parse(event.data);
+        if (data.info && data.info.playerState === 0) {
+          // Video ended
+          handleVideoEnd();
+        }
+      } catch (e) {
+        // Not a YouTube message we care about
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    return () => {
+      clearInterval(checkVideoEnd);
+      window.removeEventListener('message', handleMessage);
+    };
+  }, [currentVideo]);
+
+  // Handle when a new video is added to empty queue
+  useEffect(() => {
+    if (!currentVideo && streams.length > 0) {
+      playNextVideo();
+    }
+  }, [streams, currentVideo]);
 
   const extractVideoId = (url: string) => {
     const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
@@ -261,7 +420,7 @@ export default function StreamView({
     }
   };
   return (
-   <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-zinc-50 text-gray-900">
+     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-zinc-50 text-gray-900">
       <div className="container mx-auto px-4 py-6">
         {/* Header */}
         <div className="text-center mb-8">
@@ -289,34 +448,52 @@ export default function StreamView({
           <div className="lg:col-span-2 flex flex-col gap-6">
             <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 border border-gray-200 shadow-lg">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                <span className="text-sm font-medium text-gray-600">NOW PLAYING</span>
+                {currentVideo ? (
+                  <>
+                    <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                    <span className="text-sm font-medium text-gray-600">NOW PLAYING</span>
+                  </>
+                ) : (
+                  <span className="text-sm font-medium text-gray-600">NO VIDEO PLAYING</span>
+                )}
               </div>
               
-              <div className="aspect-video bg-black rounded-lg overflow-hidden mb-4">
-                <iframe
-                  width="100%"
-                  height="100%"
-                  src={`https://www.youtube.com/embed/${currentVideo.id}?autoplay=1`}
-                  title="YouTube video player"
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                  className="w-full h-full"
-                ></iframe>
-              </div>
-              
-              <h2 className="text-xl font-semibold mb-2">{currentVideo.title}</h2>
-              <div className="flex items-center gap-4 text-sm text-gray-500">
-                <span className="flex items-center gap-1">
-                  <Clock className="w-4 h-4" />
-                  {currentVideo.duration}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Users className="w-4 h-4" />
-                  {streams.length} in queue
-                </span>
-              </div>
+              {currentVideo ? (
+                <>
+                  <div className="aspect-video bg-black rounded-lg overflow-hidden mb-4">
+                    <iframe
+                      ref={playerRef}
+                      width="100%"
+                      height="100%"
+                      src={`https://www.youtube.com/embed/${currentVideo.id}?autoplay=1&enablejsapi=1`}
+                      title="YouTube video player"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      className="w-full h-full"
+                    ></iframe>
+                  </div>
+                  
+                  <h2 className="text-xl font-semibold mb-2">{currentVideo.title}</h2>
+                  <div className="flex items-center gap-4 text-sm text-gray-500">
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-4 h-4" />
+                      {currentVideo.duration}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Users className="w-4 h-4" />
+                      {streams.length} in queue
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="aspect-video flex items-center justify-center bg-gray-100 rounded-lg mb-4">
+                  <div className="text-center p-8">
+                    <h3 className="text-xl font-medium text-gray-500 mb-2">No Video Playing</h3>
+                    <p className="text-gray-400">Add songs to the queue to start playing</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Add New Song */}
@@ -425,7 +602,7 @@ export default function StreamView({
                           src={song.thumbnail} 
                           alt={song.title}
                           className="w-12 h-9 object-cover rounded cursor-pointer"
-                          onClick={() => playNext(song)}
+                          onClick={() => playNextVideo()}
                         />
                         
                         <div className="flex-1 min-w-0">
