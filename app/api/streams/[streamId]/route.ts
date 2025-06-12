@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth"; // ADD THIS
 
 export async function DELETE(
-  request: NextRequest,
+ request: Request,
   { params }: { params: { streamId: string } }
 ) {
   try {
