@@ -149,7 +149,7 @@ export default function StreamView({
         });
         
         // Filter out the next video from streams
-        setStreams(freshStreams.filter(stream => stream.id !== nextVideo.id));
+        setStreams(freshStreams.filter((stream:Stream) => stream.id !== nextVideo.id));
         videoEndedRef.current = false;
         preloadNextVideo(nextVideo.id, freshStreams);
       } else {
@@ -201,7 +201,7 @@ export default function StreamView({
       let filteredStreams = freshStreams;
       if (currentVideoRef.current) {
         filteredStreams = freshStreams.filter(
-          stream => stream.id !== currentVideoRef.current?.streamId
+          (stream:Stream) => stream.id !== currentVideoRef.current?.streamId
         );
       }
       
@@ -221,7 +221,7 @@ export default function StreamView({
           });
           
           // Filter out the new current video
-          setStreams(freshStreams.filter(stream => stream.id !== highestVoted.id));
+          setStreams(freshStreams.filter((stream:Stream) => stream.id !== highestVoted.id));
           videoEndedRef.current = false;
           preloadNextVideo(highestVoted.id, freshStreams);
         }
