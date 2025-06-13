@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
    outputFileTracingExcludes: {
       '/api/auth/**': ['**/*'],
     },
+    experimental: {
+    serverComponentsExternalPackages: ['@prisma/client', 'prisma']
+  }
 };
 
 export default nextConfig;
