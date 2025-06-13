@@ -503,7 +503,7 @@ export default function StreamView({
       setError('Failed to downvote. Please try again.');
     }
   };
-
+console.log(creatorId)
   const shareUrl = typeof window !== 'undefined' 
     ? `${window.location.origin}/creator/${creatorId || 'your-id'}` 
     : '';
@@ -524,7 +524,7 @@ export default function StreamView({
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent mb-2">
-            🎵 StreamVote Music
+            🎵 BarsAndBeats
           </h1>
           <p className="text-gray-600">Vote for the next song and shape the playlist together!</p>
         </div>
