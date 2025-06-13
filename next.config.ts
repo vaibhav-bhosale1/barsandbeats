@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
    eslint: {
     ignoreDuringBuilds: true,
   },
+   outputFileTracingExcludes: {
+      '/api/auth/**': ['**/*'],
+    },
 };
 
 export default nextConfig;
