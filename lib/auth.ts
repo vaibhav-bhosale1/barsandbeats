@@ -1,10 +1,8 @@
 import GoogleProvider from "next-auth/providers/google";
-
 import { prismaClient } from "@/lib/db";
 import type { NextAuthOptions } from "next-auth";
 
 export const authOptions: NextAuthOptions = {
-  
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID ?? "",
@@ -12,23 +10,26 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   secret: process.env.NEXTAUTH_SECRET ?? "secret",
-  callbacks:{
-    async signIn(params){
-      if(!params.user.email){
+  callbacks: {
+    async signIn(params) {
+      if (!params.user.email) {
         return false;
       }
-      try{
-        await prismaClient.user.create({
-            data:{
-              email:params?.user?.email,
-              provider:"Google"
-
-            }
-        })
+      try {
+        await prismaClient.user.upsert({
+          where: {
+            email: params.user.email,
+          },
+          create: {
+            email: params.user.email,
+            provider: "Google",
+          },
+          update: {}, // Don't update anything if user exists
+        });
       } catch (e) {
-        // Ignore duplicate users or handle error
+        console.error("Database error:", e);
+        return false;
       }
-
       return true;
     },
   },
