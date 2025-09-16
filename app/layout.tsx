@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "next-themes"
 import { Providers } from "./providers";
 import { color } from "framer-motion";
+import { Toaster } from "sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,6 +37,7 @@ export default function RootLayout({
         {children}
 
         </Providers>
+         <Toaster richColors />
        
       </body>
     </html>

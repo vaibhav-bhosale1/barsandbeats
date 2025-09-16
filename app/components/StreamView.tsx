@@ -3,6 +3,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { ChevronUp, ChevronDown, Play, Plus, Users, Clock, Share2, Copy, Check, SkipForward } from 'lucide-react';
 import Pusher from 'pusher-js';
 import YouTube from 'react-youtube';
+import { toast } from "sonner";
 
 // Interface for a stream/song in the queue
 interface Stream {
@@ -212,25 +213,71 @@ export default function StreamView({ creatorId, isCreator }: StreamViewProps) {
           creatorId 
         }),
       });
-      if (!res.ok) throw new Error(await res.json().then(d => d.message));
+      if (!res.ok) {
+        throw new Error(await res.json().then(d => d.message))
+        
+      }
+      toast.success(`"${previewVideo.title}" was added to the queue!`);
       setYoutubeUrl('');
       setPreviewVideo(null);
     } catch (err: any) {
       setError(err.message);
+      toast.error(err.message || "Failed to add song.");
     } finally {
       setAddingToQueue(false);
     }
   };
 
   const vote = async (streamId: string, type: 'upvote' | 'downvote') => {
+    const originalStreams = [...streams];
+     let votedSongTitle = '';
+    // 1. Update the UI immediately (Optimistic Update)
+    setStreams(currentStreams =>
+      currentStreams.map(stream => {
+        if (stream.id === streamId) {
+           votedSongTitle = stream.title;
+          const voteChange = type === 'upvote' ? 1 : -1;
+          const alreadyVoted = stream.haveUpvoted;
+
+          // Prevent invalid actions (e.g., upvoting twice, downvoting when not upvoted)
+          if ((type === 'upvote' && alreadyVoted) || (type === 'downvote' && !alreadyVoted)) {
+            return stream;
+          }
+
+          return {
+            ...stream,
+            votes: stream.votes + voteChange,
+            haveUpvoted: type === 'upvote',
+          };
+        }
+        return stream;
+      }).sort((a, b) => b.votes - a.votes) // Re-sort immediately
+    );
+
+    if (votedSongTitle) {
+      const message = type === 'upvote' 
+        ? `Upvoted "${votedSongTitle}"` 
+        : `Removed upvote for "${votedSongTitle}"`;
+      toast.info(message);
+    }
+
+    // 2. Send the request to the server in the background
     try {
-      await fetch(`/api/streams/${type}`, {
+      const res = await fetch(`/api/streams/${type}`, {
         method: "POST",
-        headers: {"Content-Type": "application/json"},
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ streamId }),
       });
+
+      if (!res.ok) {
+        // 3. If the server fails, revert the change and show an error
+        throw new Error(`Failed to ${type}`);
+      }
+      // On success, the backend's Pusher event will sync all other clients.
     } catch (error) {
-      setError(`Failed to ${type}. Please try again.`);
+      setError(`Failed to ${type}. Reverting change.`);
+      toast.error(`Your ${type} failed. Please try again.`);
+      setStreams(originalStreams); // Revert to the original state on failure
     }
   };
 
@@ -286,6 +333,12 @@ export default function StreamView({ creatorId, isCreator }: StreamViewProps) {
                             )}
                         </div>
                         {currentVideo && (<h2 className="text-xl font-semibold mb-2">{currentVideo.title}</h2>)}
+                         {currentVideo && (
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <span className="flex items-center gap-1"><Clock className="w-4 h-4" />{currentVideo.duration}</span>
+                        <span className="flex items-center gap-1"><Users className="w-4 h-4" />{streams.filter(s => s.id !== currentVideo.streamId).length} in queue</span>
+                      </div>
+                    )}
                     </div>
 
                     <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6 border border-gray-200 shadow-lg">
@@ -307,12 +360,7 @@ export default function StreamView({ creatorId, isCreator }: StreamViewProps) {
                             )}
                         </div>
                     </div>
-                    {currentVideo && (
-                      <div className="flex items-center gap-4 text-sm text-gray-500">
-                        <span className="flex items-center gap-1"><Clock className="w-4 h-4" />{currentVideo.duration}</span>
-                        <span className="flex items-center gap-1"><Users className="w-4 h-4" />{streams.filter(s => s.id !== currentVideo.streamId).length} in queue</span>
-                      </div>
-                    )}
+                   
                 </div>
 
                 <div className="lg:col-span-1">
@@ -332,27 +380,26 @@ export default function StreamView({ creatorId, isCreator }: StreamViewProps) {
                         </div>
                         <div className="space-y-3 flex-1 overflow-y-auto">
                             {loading && streams.length === 0 ? (
-                                <div className="text-center py-8 text-gray-500">Loading queue...</div>
+                              <div className="text-center py-8 text-gray-500">Loading queue...</div>
                             ) : streams.filter(stream => stream.id !== currentVideo?.streamId).length === 0 ? (
-                                <div className="text-center py-8 text-gray-500">No songs in queue.</div>
+                              <div className="text-center py-8 text-gray-500">No songs in queue.</div>
                             ) : (
-                                streams
-                                    .filter(stream => stream.id !== currentVideo?.streamId) // ✨ BUG FIX: Filter out the currently playing video
-                                    .sort((a, b) => b.votes - a.votes)
-                                    .map((song, index) => (
-                                    <div key={song.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                        <div className="text-xs font-bold text-gray-500 w-6">#{index + 1}</div>
-                                        <img src={song.thumbnail} alt={song.title} className="w-12 h-9 object-cover rounded" />
-                                        <div className="flex-1 min-w-0">
-                                            <h4 className="font-medium text-sm truncate">{song.title}</h4>
-                                            <p className="text-xs text-gray-500">by {song.submittedBy}</p>
-                                        </div>
-                                        <div className="flex flex-col items-center gap-1">
-                                            <button onClick={() => vote(song.id, 'upvote')} disabled={song.haveUpvoted} className="p-1 rounded disabled:opacity-50"><ChevronUp className="w-4 h-4" /></button>
-                                            <span className="text-xs font-bold">{song.votes}</span>
-                                            <button onClick={() => vote(song.id, 'downvote')} className="p-1 rounded"><ChevronDown className="w-4 h-4" /></button>
-                                        </div>
+                              streams
+                                .filter(stream => stream.id !== currentVideo?.streamId)
+                                .map((song, index) => ( // Note: Sorting is now done inside the vote function
+                                  <div key={song.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                    <div className="text-xs font-bold text-gray-500 w-6">#{index + 1}</div>
+                                    <img src={song.thumbnail} alt={song.title} className="w-12 h-9 object-cover rounded" />
+                                    <div className="flex-1 min-w-0">
+                                      <h4 className="font-medium text-sm truncate">{song.title}</h4>
+                                      <p className="text-xs text-gray-500">by {song.submittedBy}</p>
                                     </div>
+                                    <div className="flex flex-col items-center gap-1">
+                                      <button onClick={() => vote(song.id, 'upvote')} disabled={song.haveUpvoted} className="p-1 rounded disabled:opacity-50 text-green-600 hover:bg-green-100"><ChevronUp className="w-4 h-4" /></button>
+                                      <span className="text-xs font-bold">{song.votes}</span>
+                                      <button onClick={() => vote(song.id, 'downvote')} disabled={!song.haveUpvoted} className="p-1 rounded disabled:opacity-50 text-red-600 hover:bg-red-100"><ChevronDown className="w-4 h-4" /></button>
+                                    </div>
+                                  </div>
                                 ))
                             )}
                         </div>
