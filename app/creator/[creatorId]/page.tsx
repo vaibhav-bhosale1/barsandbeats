@@ -8,6 +8,6 @@ export default async function CreatorPage({
     const { creatorId } = await params;
     
     return (
-        <StreamView creatorId={creatorId} />
+        <StreamView creatorId={creatorId} isCreator={false}/>
     )
 }

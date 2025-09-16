@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client-js"
   output   = "../lib/generated/prisma"
@@ -8,26 +7,35 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
 model User {
-  id       String    @id @default(cuid())
-  email    String    @unique
-  provider Provider
-  streams  Stream[]
-  upvotes  Upvote[]
+  id                        String    @id @default(cuid())
+  email                     String    @unique
+  provider                  Provider
+  streams                   Stream[]
+  upvotes                   Upvote[]
+  currentlyPlayingStreamId  String?
+  currentlyPlaying          Stream?   @relation("CurrentlyPlaying", fields: [currentlyPlayingStreamId], references: [id], onDelete: SetNull)
+  playbackStartTime         DateTime?
+  isPaused                  Boolean   @default(false)
+  pausedAt                  Float?    // Stores the video timestamp when paused
 }
 
 model Stream {
-  id       String      @id @default(cuid())
-  type     StreamType
-  active   Boolean     @default(true)
-  userId   String
-  url      String
-  title    String       @default("")
-  smallImage  String    @default("")
-  bigImage  String      @default("")
-  extractedId String
-  user     User        @relation(fields: [userId], references: [id])
-  upvotes  Upvote[]    
+  id                String    @id @default(cuid())
+  type              StreamType
+  active            Boolean   @default(true)
+  userId            String
+  url               String
+  title             String    @default("")
+  smallImage        String    @default("")
+  bigImage          String    @default("")
+  extractedId       String
+  user              User      @relation(fields: [userId], references: [id])
+  upvotes           Upvote[]
+
+  // 👇 Opposite side of CurrentlyPlaying relation
+  currentlyPlayingBy User[] @relation("CurrentlyPlaying")
 }
 
 model Upvote {
@@ -36,7 +44,7 @@ model Upvote {
   streamId String
   user     User   @relation(fields: [userId], references: [id])
   stream   Stream @relation(fields: [streamId], references: [id], onDelete: Cascade)
-  
+
   @@unique([userId, streamId])
 }
 
