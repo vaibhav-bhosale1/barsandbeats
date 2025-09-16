@@ -82,8 +82,8 @@ export default function StreamView({ creatorId, isCreator }: StreamViewProps) {
       const freshStreams = await fetchStreams();
       setStreams(freshStreams);
 
-      if (isCreator && !currentVideoRef.current && freshStreams.length > 0) {
-        playNextVideo(freshStreams);
+       if (isCreator && !currentVideoRef.current && freshStreams.length > 0) {
+        playNextVideo();
       }
     } catch (error: any) {
       setError(error.message);
@@ -204,7 +204,13 @@ export default function StreamView({ creatorId, isCreator }: StreamViewProps) {
       const res = await fetch('/api/streams', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ url: youtubeUrl, title: previewVideo.title, thumbnail: previewVideo.thumbnail, duration: previewVideo.duration, creatorId }),
+        body: JSON.stringify({
+          url: youtubeUrl,
+          title: previewVideo.title,
+          thumbnail: previewVideo.thumbnail,
+          duration: previewVideo.duration, // Pass the duration
+          creatorId 
+        }),
       });
       if (!res.ok) throw new Error(await res.json().then(d => d.message));
       setYoutubeUrl('');
@@ -301,6 +307,12 @@ export default function StreamView({ creatorId, isCreator }: StreamViewProps) {
                             )}
                         </div>
                     </div>
+                    {currentVideo && (
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <span className="flex items-center gap-1"><Clock className="w-4 h-4" />{currentVideo.duration}</span>
+                        <span className="flex items-center gap-1"><Users className="w-4 h-4" />{streams.filter(s => s.id !== currentVideo.streamId).length} in queue</span>
+                      </div>
+                    )}
                 </div>
 
                 <div className="lg:col-span-1">

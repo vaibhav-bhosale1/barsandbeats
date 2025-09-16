@@ -9,40 +9,55 @@ datasource db {
 }
 
 model User {
-  id                        String    @id @default(cuid())
-  email                     String    @unique
-  provider                  Provider
-  streams                   Stream[]
-  upvotes                   Upvote[]
-  currentlyPlayingStreamId  String?
-  currentlyPlaying          Stream?   @relation("CurrentlyPlaying", fields: [currentlyPlayingStreamId], references: [id], onDelete: SetNull)
-  playbackStartTime         DateTime?
-  isPaused                  Boolean   @default(false)
-  pausedAt                  Float?    // Stores the video timestamp when paused
+  id        String    @id @default(cuid())
+  email     String    @unique
+  provider  Provider
+  upvotes   Upvote[]
+
+  // --- Corrected Relationships ---
+  // A user can own/create many stream queues.
+  createdStreams Stream[] @relation("CreatorStreams")
+  // A user can submit many songs to various queues.
+  submittedStreams Stream[] @relation("SubmittedStreams")
+
+  // --- Playback State ---
+  // The @unique attribute here is required for a one-to-one relation.
+  currentlyPlayingStreamId String?   @unique
+  currentlyPlaying         Stream?   @relation("CurrentlyPlaying", fields: [currentlyPlayingStreamId], references: [id], onDelete: SetNull)
+  playbackStartTime        DateTime?
+  isPaused                 Boolean   @default(false)
+  pausedAt                 Float?
 }
 
 model Stream {
-  id                String    @id @default(cuid())
-  type              StreamType
-  active            Boolean   @default(true)
-  userId            String
-  url               String
-  title             String    @default("")
-  smallImage        String    @default("")
-  bigImage          String    @default("")
-  extractedId       String
-  user              User      @relation(fields: [userId], references: [id])
-  upvotes           Upvote[]
+  id          String   @id @default(cuid())
+  type        StreamType
+  active      Boolean  @default(true)
+  url         String
+  title       String   @default("")
+  bigImage    String   @default("")
+  extractedId String
+  duration    String   @default("0:00")
+  upvotes     Upvote[]
 
-  // 👇 Opposite side of CurrentlyPlaying relation
-  currentlyPlayingBy User[] @relation("CurrentlyPlaying")
+  // --- Corrected Back-Relations ---
+  // The creator who owns the queue this song belongs to.
+  creatorId   String
+  creator     User   @relation("CreatorStreams", fields: [creatorId], references: [id])
+  
+  // The user who submitted this specific song to the queue.
+  submittedById String
+  submittedBy   User   @relation("SubmittedStreams", fields: [submittedById], references: [id])
+
+  // The user who is currently playing this stream.
+  currentlyPlayingUser User? @relation("CurrentlyPlaying")
 }
 
 model Upvote {
   id       String @id @default(cuid())
   userId   String
   streamId String
-  user     User   @relation(fields: [userId], references: [id])
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   stream   Stream @relation(fields: [streamId], references: [id], onDelete: Cascade)
 
   @@unique([userId, streamId])

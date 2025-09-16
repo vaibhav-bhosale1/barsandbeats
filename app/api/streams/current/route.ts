@@ -13,9 +13,10 @@ export async function GET(req: NextRequest) {
     const creator = await prismaClient.user.findUnique({
       where: { id: creatorId },
       include: {
-        currentlyPlaying: { // Include the related stream details
+        currentlyPlaying: {
+          // ✨ FIX: Explicitly include the 'submittedBy' user's details
           include: {
-            user: {
+            submittedBy: {
               select: { email: true }
             }
           }
@@ -32,26 +33,32 @@ export async function GET(req: NextRequest) {
       if (creator.isPaused && creator.pausedAt) {
         currentTimestamp = creator.pausedAt;
       } else {
-        // Calculate current time by finding difference between now and start time
         const startTime = new Date(creator.playbackStartTime).getTime();
         const now = new Date().getTime();
-        currentTimestamp = (now - startTime) / 1000; // in seconds
+        currentTimestamp = (now - startTime) / 1000;
       }
     }
+    
+    // Check if currentlyPlaying and submittedBy exist before trying to access them
+    const currentVideoData = creator.currentlyPlaying && creator.currentlyPlaying.submittedBy
+      ? {
+          id: creator.currentlyPlaying.extractedId,
+          title: creator.currentlyPlaying.title,
+          thumbnail: creator.currentlyPlaying.bigImage,
+          duration: creator.currentlyPlaying.duration,
+          streamId: creator.currentlyPlaying.id,
+          submittedBy: creator.currentlyPlaying.submittedBy.email,
+        }
+      : null;
 
     return NextResponse.json({
-      currentVideo: creator.currentlyPlaying ? {
-        id: creator.currentlyPlaying.extractedId,
-        title: creator.currentlyPlaying.title,
-        thumbnail: creator.currentlyPlaying.bigImage,
-        streamId: creator.currentlyPlaying.id,
-        submittedBy: creator.currentlyPlaying.user.email
-      } : null,
+      currentVideo: currentVideoData,
       isPlaying: !creator.isPaused,
       timestamp: currentTimestamp,
     });
 
   } catch (error) {
+    console.error("ERROR FETCHING CURRENT STREAM:", error);
     return NextResponse.json({ message: "Internal Server Error" }, { status: 500 });
   }
 }

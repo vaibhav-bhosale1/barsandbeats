@@ -4,123 +4,92 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { pusherServer } from "@/lib/pusher";
 
-// GET function remains the same...
+// --- GET Request Handler (for fetching streams) ---
 export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url);
+    const creatorId = searchParams.get("creatorId");
+
+    if (!creatorId) {
+      return NextResponse.json({ message: "Creator ID is required" }, { status: 400 });
+    }
+
     const session = await getServerSession(authOptions);
-    if (!session?.user?.email) {
-      return NextResponse.json({ message: "Unauthenticated" }, { status: 401 });
-    }
-    const user = await prismaClient.user.findFirst({
-      where: { email: session.user.email },
-      select: { id: true },
-    });
-    if (!user) {
-      return NextResponse.json({ message: "User not found" }, { status: 404 });
-    }
-    const creatorId = req.nextUrl.searchParams.get("creatorId") || user.id;
+    const user = session ? await prismaClient.user.findUnique({ where: { email: session?.user?.email! } }) : null;
+
     const streams = await prismaClient.stream.findMany({
-      where: { userId: creatorId, active: true, },
+      where: { creatorId: creatorId },
       include: {
-        _count: { select: { upvotes: true, }, },
-        upvotes: { where: { userId: user.id, }, select: { id: true, }, },
-        user: { select: { email: true, }, },
+        _count: { select: { upvotes: true } },
+        upvotes: user ? { where: { userId: user.id } } : false,
+        submittedBy: { select: { email: true } },
       },
-      orderBy: { upvotes: { _count: "desc", }, },
+      orderBy: { upvotes: { _count: "desc" } },
     });
+
     const transformedStreams = streams.map((stream) => ({
       id: stream.id,
-      title: stream.title || "Untitled Stream",
-      thumbnail: stream.bigImage || `https://img.youtube.com/vi/${stream.extractedId}/maxresdefault.jpg`,
-      duration: "0:00",
-      votes: stream._count?.upvotes || 0,
-      submittedBy: stream.user?.email || "Unknown",
+      title: stream.title,
+      thumbnail: stream.bigImage,
+      duration: stream.duration,
+      votes: stream._count.upvotes,
+      submittedBy: stream.submittedBy.email,
       extractedId: stream.extractedId,
       haveUpvoted: (stream.upvotes?.length || 0) > 0,
     }));
+
     return NextResponse.json({ streams: transformedStreams });
   } catch (error) {
-    console.error("GET ERROR:", error);
-    return NextResponse.json( { message: "Internal server error", error: error instanceof Error ? error.message : "Unknown error", }, { status: 500 } );
+    console.error("ERROR FETCHING STREAMS:", error);
+    return NextResponse.json({ message: "Error fetching streams" }, { status: 500 });
   }
 }
 
-
+// --- POST Request Handler (for adding a song) ---
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) {
       return NextResponse.json({ message: "Unauthenticated" }, { status: 401 });
     }
-    const user = await prismaClient.user.findFirst({
-      where: { email: session.user.email },
-      select: { id: true },
-    });
-    if (!user) {
+
+    const submittingUser = await prismaClient.user.findUnique({ where: { email: session.user.email } });
+    if (!submittingUser) {
       return NextResponse.json({ message: "User not found" }, { status: 404 });
     }
+
     const body = await req.json();
-    const { url, title, thumbnail, creatorId } = body;
-    if (!url) {
-      return NextResponse.json({ message: "URL is required" }, { status: 400 });
-    }
+    const { url, title, thumbnail, duration, creatorId } = body;
+
     const extractVideoId = (url: string) => {
-      const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
-      const match = url.match(regex);
-      return match ? match[1] : null;
+        const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+        return url.match(regex)?.[1] || null;
     };
     const extractedId = extractVideoId(url);
     if (!extractedId) {
       return NextResponse.json({ message: "Invalid YouTube URL" }, { status: 400 });
     }
-    const actualCreatorId = creatorId || user.id;
-    const existingStream = await prismaClient.stream.findFirst({
-      where: {
-        extractedId,
-        userId: actualCreatorId,
-        active: true,
-      },
-    });
-    if (existingStream) {
-      return NextResponse.json({ message: "This video is already in the queue" }, { status: 400 });
-    }
-    const stream = await prismaClient.stream.create({
+
+    // Use the new, clear schema fields
+    await prismaClient.stream.create({
       data: {
-        userId: actualCreatorId,
+        creatorId: creatorId,
+        submittedById: submittingUser.id,
         url,
         extractedId,
-        title: title || "Untitled Stream",
+        title: title || "Untitled Video",
         bigImage: thumbnail || `https://img.youtube.com/vi/${extractedId}/maxresdefault.jpg`,
+        duration: duration || "0:00",
         active: true,
         type: "Youtube",
       },
     });
 
-    // ✨ Trigger a Pusher event
-    await pusherServer.trigger(`stream-${actualCreatorId}`, 'playlist-updated', {
-      message: 'A new song has been added.'
-    });
+    await pusherServer.trigger(`stream-${creatorId}`, 'playlist-updated', {});
 
-    return NextResponse.json({
-      message: "Stream added successfully",
-      stream: {
-        id: stream.id,
-        title: stream.title,
-        thumbnail: stream.bigImage,
-        extractedId: stream.extractedId,
-        votes: 0,
-        haveUpvoted: false,
-        submittedBy: session.user.email,
-      },
-    });
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("POST ERROR:", error);
-    return NextResponse.json(
-      {
-        message: "Internal server error",
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    console.error("ADD TO QUEUE ERROR:", error);
+    return NextResponse.json({ message: "Internal server error while adding song" }, { status: 500 });
   }
 }

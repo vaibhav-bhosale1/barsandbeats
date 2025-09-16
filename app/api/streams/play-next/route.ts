@@ -16,25 +16,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: "User not found" }, { status: 404 });
     }
 
-    // --- The Core Logic ---
-
-    // 1. Find and delete the currently playing stream, if one exists.
+    // 1. Find and delete the currently playing stream, if one exists
     if (user.currentlyPlayingStreamId) {
       await prismaClient.stream.delete({
         where: { id: user.currentlyPlayingStreamId }
-      });
+      }).catch(err => console.log("Tried to delete an already deleted stream, which is okay."));
     }
 
-    // 2. Get the remaining streams, ordered by vote count.
+    // 2. Get the remaining streams, ordered by vote count, to find the next one
     const remainingStreams = await prismaClient.stream.findMany({
-      where: { userId: user.id },
+      where: { creatorId: user.id },
       orderBy: { upvotes: { _count: 'desc' } },
       take: 1
     });
-
     const nextStream = remainingStreams[0] || null;
 
-    // 3. Update the user's state to the next video (or null if queue is empty).
+    // 3. Update the user's state to the next video (or null if the queue is empty)
     await prismaClient.user.update({
       where: { id: user.id },
       data: {
@@ -45,13 +42,13 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // 4. Notify all clients about the new video and the updated playlist.
+    // 4. Notify all clients about the change
     await pusherServer.trigger(`stream-${user.id}`, 'new-video-playing', {});
     await pusherServer.trigger(`stream-${user.id}`, 'playlist-updated', {});
 
     return NextResponse.json({ success: true });
   } catch (e) {
-    console.error("Play Next Error:", e);
+    console.error("Play Next API Error:", e);
     return NextResponse.json({ message: "Internal Server Error" }, { status: 500 });
   }
 }
