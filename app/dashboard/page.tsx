@@ -1,54 +1,73 @@
 "use client"
-import React, { useEffect, useState } from 'react';
-import StreamView from '../components/StreamView';
+
+import React, { useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { toast } from "sonner";
 
 export default function Dashboard() {
-  const [creatorId, setCreatorId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const [creatorId, setCreatorId] = useState('');
 
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const res = await fetch('/api/user/me');
-        if (!res.ok) {
-          throw new Error('Failed to fetch user data');
-        }
-        const user = await res.json();
-        setCreatorId(user.id);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'An unknown error occurred');
-      } finally {
-        setLoading(false);
-      }
-    };
+  const handleJoinStream = () => {
+    if (creatorId.trim()) {
+      router.push(`/creator/${creatorId.trim()}`);
+    } else {
+      toast.error("Please enter a valid Stream ID.");
+    }
+  };
 
-    fetchUser();
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-16 h-16 border-4 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-zinc-50">
+      <div className="text-center mb-12">
+        <h1 className="text-5xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent mb-2">
+          🎵 BarsAndBeats
+        </h1>
+        <p className="text-gray-600 text-lg">Your collaborative music experience starts here.</p>
       </div>
-    );
-  }
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-screen text-red-500">
-        <p>Error: {error}</p>
+      <div className="flex flex-col sm:flex-row items-center gap-6">
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button size="lg" className="w-64">Join a Stream</Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Join a Stream</DialogTitle>
+              <DialogDescription>
+                Paste the Stream ID provided by the creator to join their session.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <Input
+                id="creatorId"
+                placeholder="Enter Stream ID here..."
+                value={creatorId}
+                onChange={(e) => setCreatorId(e.target.value)}
+                className="col-span-3"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="submit" onClick={handleJoinStream}>Join Stream</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Link href="/mystreams" passHref>
+          <Button size="lg" variant="outline" className="w-64">Go to My Stream</Button>
+        </Link>
       </div>
-    );
-  }
-
-  if (!creatorId) {
-    return (
-        <div className="flex items-center justify-center min-h-screen text-gray-500">
-            <p>Could not load your dashboard. Please try logging in again.</p>
-        </div>
-    )
-  }
-
-  return <StreamView creatorId={creatorId} isCreator={true} />;
+    </div>
+  );
 }
