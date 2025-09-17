@@ -2,6 +2,10 @@
 
 **BarsAndBeats** is a real-time collaborative music jamming platform that allows users to create and join a shared streaming session with friends. Participants can queue YouTube videos, upvote their favorite tracks, and enjoy an automatically managed playback experience where the most upvoted video plays next.
 
+
+<img width="1890" height="838" alt="image" src="https://github.com/user-attachments/assets/e8b9edcc-8ffb-40a4-8253-1370a69ec467" />
+
+
 ## 🚀 Features
 
 - 🔗 Create or join live streaming rooms using a unique session ID
