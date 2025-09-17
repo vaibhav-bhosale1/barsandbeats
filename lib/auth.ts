@@ -10,6 +10,12 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   secret: process.env.NEXTAUTH_SECRET ?? "secret",
+  
+  // ✨ Add the pages option here
+  pages: {
+    signIn: '/auth/signin', // Tells NextAuth.js to use this path for the sign-in page
+  },
+
   callbacks: {
     async signIn(params) {
       if (!params.user.email) {
@@ -24,7 +30,7 @@ export const authOptions: NextAuthOptions = {
             email: params.user.email,
             provider: "Google",
           },
-          update: {}, // Don't update anything if user exists
+          update: {},
         });
       } catch (e) {
         console.error("Database error:", e);

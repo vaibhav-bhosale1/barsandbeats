@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import { Music, LogIn, LayoutDashboard, Loader2 } from 'lucide-react'; // 1. Import Loader2 icon
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { 
@@ -13,61 +15,126 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog"
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 
 export default function Dashboard() {
   const router = useRouter();
   const [creatorId, setCreatorId] = useState('');
+  const [loadingButton, setLoadingButton] = useState(null); // 2. State to track which button is loading
 
-  const handleJoinStream = () => {
+  const handleJoinStream = (e) => {
+    e.preventDefault();
+    if (loadingButton) return; // Prevent action if already loading
+
     if (creatorId.trim()) {
+      setLoadingButton('joinDialog'); // Set loading state for the dialog button
       router.push(`/creator/${creatorId.trim()}`);
     } else {
       toast.error("Please enter a valid Stream ID.");
     }
   };
+  
+  const handleMyStreamClick = () => {
+    if (loadingButton) return;
+    setLoadingButton('myStream'); // Set loading state for the 'My Stream' button
+  };
+
+  const containerVariants = {
+    hidden: { opacity: 0, scale: 0.98 },
+    visible: { 
+      opacity: 1, 
+      scale: 1,
+      transition: { duration: 0.5, ease: "easeOut" }
+    }
+  };
+  
+  const primaryButtonStyles = "bg-white text-black hover:bg-gray-200 h-14 w-full text-base sm:w-64 font-semibold disabled:opacity-70";
+  const secondaryButtonStyles = "bg-gray-900/50 border border-gray-800 text-gray-300 hover:bg-gray-800 hover:border-gray-700 h-14 w-full text-base sm:w-64 font-semibold disabled:opacity-70";
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-zinc-50">
-      <div className="text-center mb-12">
-        <h1 className="text-5xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent mb-2">
-          🎵 BarsAndBeats
-        </h1>
-        <p className="text-gray-600 text-lg">Your collaborative music experience starts here.</p>
-      </div>
-
-      <div className="flex flex-col sm:flex-row items-center gap-6">
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button size="lg" className="w-64">Join a Stream</Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Join a Stream</DialogTitle>
-              <DialogDescription>
-                Paste the Stream ID provided by the creator to join their session.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <Input
-                id="creatorId"
-                placeholder="Enter Stream ID here..."
-                value={creatorId}
-                onChange={(e) => setCreatorId(e.target.value)}
-                className="col-span-3"
-              />
+    <div 
+      className="flex items-center justify-center min-h-screen p-4 bg-black text-white"
+      style={{
+        backgroundImage: 'linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px)',
+        backgroundSize: '30px 30px',
+      }}
+    >
+      <motion.div
+        className="w-full max-w-2xl relative"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        <div 
+          className="bg-[#121212] border border-gray-800 rounded-2xl shadow-2xl shadow-gray-900/50 p-8 sm:p-12 text-center"
+          style={{
+            background: 'radial-gradient(circle at 50% 50%, rgba(38, 38, 38, 0.5) 0%, #121212 70%)',
+          }}
+        >
+          <div className="flex items-center justify-center space-x-3 mb-4">
+            <div className="w-12 h-12 rounded-lg bg-gray-900/80 border border-gray-800 flex items-center justify-center">
+              <Music size={24} className="text-white" />
             </div>
-            <DialogFooter>
-              <Button type="submit" onClick={handleJoinStream}>Join Stream</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            <h1 className="text-4xl font-bold">BarsAndBeats</h1>
+          </div>
+          <p className="text-gray-400 text-lg mb-10">
+            The stage is set. Where are you heading?
+          </p>
 
-        <Link href="/mystreams" passHref>
-          <Button size="lg" variant="outline" className="w-64">Go to My Stream</Button>
-        </Link>
-      </div>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button className={`${primaryButtonStyles} flex gap-2`} disabled={loadingButton !== null}>
+                  <LogIn size={18} /> Join a Stream
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px] bg-[#121212] border-gray-800 text-white">
+                <DialogHeader>
+                  <DialogTitle className="text-white">Join a Stream</DialogTitle>
+                  <DialogDescription className="text-gray-400">
+                    Paste the Stream ID provided by the creator to join their session.
+                  </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleJoinStream}>
+                  <div className="grid gap-4 py-4">
+                    <Input
+                      id="creatorId"
+                      placeholder="Enter Stream ID here..."
+                      value={creatorId}
+                      onChange={(e) => setCreatorId(e.target.value)}
+                      className="bg-gray-900 border-gray-700 text-white focus:ring-white"
+                    />
+                  </div>
+                  <DialogFooter>
+                    {/* 3. Add conditional rendering for the loading state */}
+                    <Button type="submit" className={primaryButtonStyles} disabled={loadingButton !== null}>
+                      {loadingButton === 'joinDialog' ? (
+                        <Loader2 size={20} className="animate-spin" />
+                      ) : (
+                        'Join Stream'
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+
+            <Link href="/mystreams" passHref onClick={handleMyStreamClick}>
+              <Button variant="outline" className={`${secondaryButtonStyles} flex gap-2`} disabled={loadingButton !== null}>
+                {/* 4. Add conditional rendering for the loading state */}
+                {loadingButton === 'myStream' ? (
+                  <Loader2 size={20} className="animate-spin" />
+                ) : (
+                  <>
+                    <LayoutDashboard size={18} /> My Stream
+                  </>
+                )}
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
 }
