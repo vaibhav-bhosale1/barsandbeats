@@ -4,8 +4,16 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, Music, X } from 'lucide-react';
 import { signIn, signOut, useSession } from 'next-auth/react';
 
-// Minimal Button component consistent with the rest of the page
-const Button = ({ onClick, children, variant = 'primary', className = '' }) => {
+// ✨ 1. Define the types for the Button's props
+interface ButtonProps {
+  onClick: () => void;
+  children: React.ReactNode;
+  variant?: 'primary' | 'secondary';
+  className?: string;
+}
+
+// ✨ 2. Apply the types to the Button component
+const Button = ({ onClick, children, variant = 'primary', className = '' }: ButtonProps) => {
   const baseClasses = "inline-flex items-center justify-center px-5 py-2 font-semibold transition-colors duration-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-black focus:ring-white";
   const variants = {
     primary: "bg-white text-black hover:bg-gray-200",
@@ -68,9 +76,8 @@ export default function Header() {
           <div className="hidden md:flex items-center space-x-3">
             {!session?.user ? (
               <>
-                <Button variant="secondary" onClick={() => signIn()
-                } className='cursor-pointer'>Log In</Button>
-                <Button variant="primary" onClick={() => signIn()}className='cursor-pointer'>Sign Up</Button>
+                <Button variant="secondary" onClick={() => signIn()} className='cursor-pointer'>Log In</Button>
+                <Button variant="primary" onClick={() => signIn()} className='cursor-pointer'>Sign Up</Button>
               </>
             ) : (
               <Button variant="secondary" onClick={() => signOut()} className='cursor-pointer'>Sign Out</Button>

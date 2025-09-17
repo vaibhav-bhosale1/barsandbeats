@@ -3,8 +3,8 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
-import { Music, LogIn, LayoutDashboard, Loader2 } from 'lucide-react'; // 1. Import Loader2 icon
+import { motion, Variants } from 'framer-motion';
+import { Music, LogIn, LayoutDashboard, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { 
@@ -18,17 +18,21 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
+// Define a type for the loading state to avoid using strings
+type LoadingState = 'joinDialog' | 'myStream' | null;
+
 export default function Dashboard() {
   const router = useRouter();
   const [creatorId, setCreatorId] = useState('');
-  const [loadingButton, setLoadingButton] = useState(null); // 2. State to track which button is loading
+  const [loadingButton, setLoadingButton] = useState<LoadingState>(null);
 
-  const handleJoinStream = (e) => {
+  // ✨ FIX: Add type for the form event
+  const handleJoinStream = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (loadingButton) return; // Prevent action if already loading
+    if (loadingButton) return;
 
     if (creatorId.trim()) {
-      setLoadingButton('joinDialog'); // Set loading state for the dialog button
+      setLoadingButton('joinDialog');
       router.push(`/creator/${creatorId.trim()}`);
     } else {
       toast.error("Please enter a valid Stream ID.");
@@ -37,10 +41,11 @@ export default function Dashboard() {
   
   const handleMyStreamClick = () => {
     if (loadingButton) return;
-    setLoadingButton('myStream'); // Set loading state for the 'My Stream' button
+    setLoadingButton('myStream');
   };
 
-  const containerVariants = {
+  // ✨ FIX: Ensure the variants object matches Framer Motion's expected types
+  const containerVariants: Variants = {
     hidden: { opacity: 0, scale: 0.98 },
     visible: { 
       opacity: 1, 
@@ -107,7 +112,6 @@ export default function Dashboard() {
                     />
                   </div>
                   <DialogFooter>
-                    {/* 3. Add conditional rendering for the loading state */}
                     <Button type="submit" className={primaryButtonStyles} disabled={loadingButton !== null}>
                       {loadingButton === 'joinDialog' ? (
                         <Loader2 size={20} className="animate-spin" />
@@ -122,7 +126,6 @@ export default function Dashboard() {
 
             <Link href="/mystreams" passHref onClick={handleMyStreamClick}>
               <Button variant="outline" className={`${secondaryButtonStyles} flex gap-2`} disabled={loadingButton !== null}>
-                {/* 4. Add conditional rendering for the loading state */}
                 {loadingButton === 'myStream' ? (
                   <Loader2 size={20} className="animate-spin" />
                 ) : (
